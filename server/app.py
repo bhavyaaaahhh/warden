@@ -8,6 +8,7 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from server.db import jsonb, pool
+from server.evals import router as evals_router
 from server.schemas import SpanIn, TraceIn
 
 
@@ -19,6 +20,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="warden", lifespan=lifespan)
+app.include_router(evals_router)
 
 
 @app.get("/health")
