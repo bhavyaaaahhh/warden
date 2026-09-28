@@ -1,0 +1,15 @@
+[project]
+name = "warden"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.20.0",
+    "fastapi>=0.141.1",
+    "httpx>=0.28.1",
+    "psycopg-pool>=3.3.3",
+    "psycopg[binary]>=3.3.6",
+    "sqlalchemy>=2.1.1",
+    "uvicorn>=0.54.0",
+]
