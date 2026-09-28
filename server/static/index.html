@@ -2,29 +2,41 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>warden · traces</title>
+<title>warden</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
   :root {
     --bg: #fafafa; --panel: #fff; --text: #1a1a1a; --muted: #6b6b6b;
-    --border: #e5e5e5; --hover: #f2f2f2; --selected: #e8f0fe;
-    --ok: #1e8e3e; --err: #d93025; --running: #b06000;
+    --border: #e5e5e5; --hover: #f2f2f2; --selected: #e8f0fe; --accent: #1a73e8;
+    --ok: #1e8e3e; --err: #d93025; --running: #b06000; --star: #e8a200;
     --llm_call: #7b61ff; --tool_call: #f29900; --retrieval: #1a73e8;
     --mono: ui-monospace, SFMono-Regular, Menlo, monospace;
   }
   @media (prefers-color-scheme: dark) {
     :root {
       --bg: #141414; --panel: #1c1c1c; --text: #e8e8e8; --muted: #9a9a9a;
-      --border: #2e2e2e; --hover: #242424; --selected: #1f2d45;
+      --border: #2e2e2e; --hover: #242424; --selected: #1f2d45; --accent: #8ab4f8;
     }
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
   body { margin: 0; font: 13px/1.45 system-ui, sans-serif; background: var(--bg); color: var(--text); }
-  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); }
-  header h1 { font-size: 15px; margin: 0; }
-  header input { margin-left: auto; padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); width: 200px; }
-  button { padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; }
-  main { display: grid; grid-template-columns: 420px 1fr; height: calc(100vh - 47px); }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  header { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel); height: 47px; }
+  header h1 { font-size: 15px; margin: 0 8px 0 0; }
+  nav { display: flex; gap: 2px; }
+  nav a { padding: 5px 10px; border-radius: 6px; color: var(--muted); font-weight: 500; }
+  nav a:hover { background: var(--hover); text-decoration: none; }
+  nav a.active { background: var(--selected); color: var(--text); }
+  .tools { margin-left: auto; display: flex; gap: 8px; }
+  header input { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); width: 200px; }
+  button, select { padding: 5px 10px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); cursor: pointer; font: inherit; }
+  button:hover { background: var(--hover); }
+  button:disabled { opacity: .5; cursor: default; }
+  .grid { display: grid; grid-template-columns: 420px 1fr; height: calc(100vh - 47px); }
+  .page { height: calc(100vh - 47px); overflow-y: auto; }
+  .page-inner { max-width: 1120px; margin: 0 auto; padding: 18px 24px 60px; }
   #list { overflow-y: auto; border-right: 1px solid var(--border); background: var(--panel); }
   #detail { overflow-y: auto; padding: 16px 20px; }
   .row { padding: 9px 14px; border-bottom: 1px solid var(--border); cursor: pointer; }
@@ -35,13 +47,23 @@
   .row .when { margin-left: auto; color: var(--muted); font-size: 12px; }
   .row .input { color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
   .row .stats { color: var(--muted); font-size: 12px; margin-top: 2px; }
-  .tag { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--hover); border: 1px solid var(--border); }
+  .tag { font-family: var(--mono); font-size: 11px; padding: 1px 6px; border-radius: 4px; background: var(--hover); border: 1px solid var(--border); white-space: nowrap; }
+  .tag.eval { color: var(--accent); }
   .status { font-size: 11px; font-weight: 600; text-transform: uppercase; }
-  .status.success { color: var(--ok); } .status.error { color: var(--err); } .status.running { color: var(--running); }
+  .status.success, .status.completed { color: var(--ok); }
+  .status.error, .status.failed { color: var(--err); }
+  .status.running { color: var(--running); }
+  .star { color: var(--star); font-weight: 600; white-space: nowrap; }
+  .ok { color: var(--ok); } .bad { color: var(--err); } .muted { color: var(--muted); }
   .empty { color: var(--muted); padding: 40px; text-align: center; }
-  h2 { font-size: 16px; margin: 0 0 4px; }
+  .empty code, .hint code { font-family: var(--mono); background: var(--hover); padding: 1px 5px; border-radius: 4px; }
+  h2 { font-size: 16px; margin: 0 0 4px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+  h3.section { font-size: 12px; font-weight: 600; text-transform: uppercase; color: var(--muted); margin: 22px 0 8px; }
   .meta { color: var(--muted); margin-bottom: 16px; display: flex; flex-wrap: wrap; gap: 14px; }
   .meta code { font-family: var(--mono); }
+  .crumb { display: inline-block; margin-bottom: 10px; }
+  .actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 8px; }
+  .hint { color: var(--muted); }
   .waterfall { border: 1px solid var(--border); border-radius: 8px; background: var(--panel); margin-bottom: 16px; }
   .span { display: grid; grid-template-columns: 300px 1fr 70px; align-items: center; padding: 6px 10px; border-bottom: 1px solid var(--border); cursor: pointer; }
   .span:last-child { border-bottom: none; }
@@ -61,19 +83,55 @@
   .label-sm { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); margin: 10px 0 4px; }
   pre { margin: 0; padding: 10px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font: 12px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word; max-height: 360px; overflow: auto; }
   pre.error { color: var(--err); }
+  /* evals */
+  table.t { width: 100%; border-collapse: collapse; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+  table.t th { text-align: left; font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); padding: 8px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+  table.t td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.t tr:last-child td { border-bottom: none; }
+  table.t tr.click { cursor: pointer; }
+  table.t tr.click:hover td { background: var(--hover); }
+  table.t td.num, table.t th.num { text-align: right; white-space: nowrap; }
+  table.t td.num { font-family: var(--mono); font-size: 12px; }
+  table.t td.clip { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  table.t tr.expanded td { background: var(--hover); }
+  .chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; margin: 0 4px 2px 0; border: 1px solid var(--border); white-space: nowrap; }
+  .chip.pass { color: var(--ok); } .chip.fail { color: var(--err); border-color: var(--err); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
+  .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .tile .k { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
+  .tile .v { font-size: 20px; font-weight: 600; margin-top: 2px; font-variant-numeric: tabular-nums; }
+  .tile .s { font-size: 12px; color: var(--muted); }
+  .verdict { border-radius: 8px; padding: 12px 14px; font-size: 15px; font-weight: 600; border: 1px solid; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .verdict.bad { color: var(--err); border-color: var(--err); background: color-mix(in srgb, var(--err) 8%, var(--panel)); }
+  .verdict.ok { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
+  .verdict .sub { font-size: 13px; font-weight: 400; color: var(--muted); }
+  .verdict a { font-size: 13px; font-weight: 500; margin-left: auto; }
+  .warn { color: var(--running); margin: 4px 0; }
+  .card { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; margin-bottom: 10px; }
+  .card .head { display: flex; gap: 8px; align-items: baseline; flex-wrap: wrap; margin-bottom: 8px; }
+  .card .head b { font-family: var(--mono); }
+  .card .head .links { margin-left: auto; display: flex; gap: 12px; font-size: 12px; }
+  .sbs { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .flag { color: var(--err); font-weight: 700; }
 </style>
 </head>
 <body>
 <header>
   <h1>warden</h1>
-  <span style="color:var(--muted)">traces</span>
-  <input id="filter" placeholder="filter by agent_name">
-  <button id="refresh">Refresh</button>
+  <nav>
+    <a href="#/traces" id="tab-traces">Traces</a>
+    <a href="#/evals" id="tab-evals">Evals</a>
+  </nav>
+  <div class="tools">
+    <input id="filter" placeholder="filter by agent_name">
+    <button id="refresh">Refresh</button>
+  </div>
 </header>
-<main>
+<main id="traces-view" class="grid">
   <section id="list"></section>
   <section id="detail"><div class="empty">Select a trace</div></section>
 </main>
+<main id="evals-view" class="page" hidden><div class="page-inner" id="evals"></div></main>
 
 <script>
 // All user/LLM content is inserted via textContent, never innerHTML.
@@ -84,16 +142,39 @@ const $ = (tag, props = {}, ...children) => {
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else el[k] = v;
   }
-  for (const c of children) if (c != null) el.append(c);
+  for (const c of children) if (c != null && c !== false) el.append(c);
   return el;
 };
+const text = (s) => document.createTextNode(s);
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.detail || `${res.status} ${res.statusText}`);
+  }
+  return res.json();
+}
 
 const ms = (a, b) => (a && b) ? new Date(b) - new Date(a) : null;
-const fmtMs = (d) => d == null ? "—" : d < 1000 ? `${d} ms` : `${(d / 1000).toFixed(2)} s`;
+const fmtMs = (d) => d == null ? "—" : d < 1000 ? `${Math.round(d)} ms` : `${(d / 1000).toFixed(2)} s`;
 const fmtWhen = (iso) => new Date(iso).toLocaleString(undefined, { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit", second: "2-digit" });
-const fmtCost = (c) => c == null ? null : `$${Number(c).toFixed(6)}`;
+const fmtCost = (c) => c == null ? "—" : `$${Number(c).toFixed(6)}`;
+const fmtInt = (n) => n == null ? "—" : Math.round(n).toLocaleString();
 const preview = (v) => v == null ? "" : typeof v === "string" ? v : JSON.stringify(v);
 const pretty = (v) => v == null ? "null" : typeof v === "string" ? v : JSON.stringify(v, null, 2);
+const short = (id) => String(id).slice(0, 8);
+const versionOf = (r) => r.version_tag || "(untagged)";
+const percentile = (vals, p) => {
+  if (!vals.length) return null;
+  const s = [...vals].sort((a, b) => a - b);
+  return s[Math.max(0, Math.ceil(p / 100 * s.length) - 1)];
+};
+
+// Bumped on every navigation so a slow response for an old page doesn't overwrite the new one.
+let navSeq = 0;
+
+/* ---------------- traces ---------------- */
 
 let selectedTrace = null;
 
@@ -103,7 +184,7 @@ async function loadList() {
   const list = document.getElementById("list");
   let traces;
   try {
-    traces = await (await fetch(url)).json();
+    traces = await api(url);
   } catch (e) {
     list.replaceChildren($("div", { className: "empty", textContent: "Failed to load traces" }));
     return;
@@ -119,11 +200,12 @@ async function loadList() {
     if (t.cost_usd != null) stats.push(fmtCost(t.cost_usd));
     return $("div", {
       className: "row" + (t.trace_id === selectedTrace ? " selected" : ""),
-      onclick: () => { location.hash = t.trace_id; },
+      onclick: () => { location.hash = `#/traces/${t.trace_id}`; },
     },
       $("div", { className: "top" },
         $("span", { className: "name", textContent: t.agent_name }),
         t.version_tag ? $("span", { className: "tag", textContent: t.version_tag }) : null,
+        t.eval_run_id ? $("span", { className: "tag eval", textContent: "eval", title: `eval run ${t.eval_run_id}` }) : null,
         $("span", { className: `status ${t.status}`, textContent: t.status }),
         $("span", { className: "when", textContent: fmtWhen(t.started_at) }),
       ),
@@ -155,14 +237,15 @@ function flattenTree(spans) {
 
 async function loadTrace(traceId) {
   selectedTrace = traceId;
-  document.querySelectorAll(".row").forEach((r) => r.classList.remove("selected"));
   const detail = document.getElementById("detail");
-  const res = await fetch(`/traces/${traceId}`);
-  if (!res.ok) {
+  let t;
+  try {
+    t = await api(`/traces/${traceId}`);
+  } catch (e) {
     detail.replaceChildren($("div", { className: "empty", textContent: "Trace not found" }));
+    loadList();
     return;
   }
-  const t = await res.json();
   loadList();
 
   const t0 = new Date(t.started_at).getTime();
@@ -195,23 +278,28 @@ async function loadTrace(traceId) {
     return row;
   });
 
+  const meta = t.metadata || {};
   detail.replaceChildren(
     $("h2", {},
-      document.createTextNode(t.agent_name + " "),
+      text(t.agent_name),
       t.version_tag ? $("span", { className: "tag", textContent: t.version_tag }) : null,
-      document.createTextNode(" "),
       $("span", { className: `status ${t.status}`, textContent: t.status }),
     ),
     $("div", { className: "meta" },
-      $("span", {}, "trace ", $("code", { textContent: t.trace_id })),
+      $("span", {}, text("trace "), $("code", { textContent: t.trace_id })),
       $("span", { textContent: fmtWhen(t.started_at) }),
       $("span", { textContent: fmtMs(ms(t.started_at, t.ended_at)) }),
+      meta.eval_run_id ? $("span", {},
+        text("from eval run "),
+        $("a", { href: `#/evals/${meta.eval_run_id}`, textContent: short(meta.eval_run_id) }),
+        meta.eval_item_id ? text(` · item ${meta.eval_item_id}`) : null,
+      ) : null,
     ),
     $("div", { className: "label-sm", textContent: "Input" }),
     $("pre", { textContent: pretty(t.input), style: "margin-bottom:16px" }),
-    Object.keys(t.metadata || {}).length
+    Object.keys(meta).length
       ? $("div", {}, $("div", { className: "label-sm", textContent: "Metadata" }),
-          $("pre", { textContent: pretty(t.metadata), style: "margin-bottom:16px" }))
+          $("pre", { textContent: pretty(meta), style: "margin-bottom:16px" }))
       : null,
     $("div", { className: "label-sm", textContent: `Spans (${t.spans.length})` }),
     rows.length ? $("div", { className: "waterfall" }, ...rows)
@@ -227,10 +315,9 @@ function showSpan(panel, s) {
   if (s.tokens_output != null) kv.push(["tokens out", s.tokens_output]);
   if (s.cost_usd != null) kv.push(["cost", fmtCost(s.cost_usd)]);
   panel.replaceChildren($("div", { className: "panel" },
-    $("h3", {}, $("span", { className: "dot", style: `background:var(--${s.span_type})` }),
-      document.createTextNode(s.name)),
+    $("h3", {}, $("span", { className: "dot", style: `background:var(--${s.span_type})` }), text(s.name)),
     $("div", { className: "kv" }, ...kv.map(([k, v]) =>
-      $("span", {}, document.createTextNode(k + " "), $("b", { textContent: String(v) })))),
+      $("span", {}, text(k + " "), $("b", { textContent: String(v) })))),
     s.error ? $("div", {}, $("div", { className: "label-sm", textContent: "Error" }),
       $("pre", { className: "error", textContent: s.error })) : null,
     $("div", { className: "label-sm", textContent: "Input" }),
@@ -240,20 +327,349 @@ function showSpan(panel, s) {
   ));
 }
 
-const route = () => {
-  const id = location.hash.slice(1);
-  if (id) loadTrace(id); else loadList();
-};
+/* ---------------- evals ---------------- */
+
+const evalsRoot = () => document.getElementById("evals");
+const CHECK_CMD = "uv run python -m warden_sdk.evals check examples/datasets/demo.jsonl --agent examples.demo_agent:run";
+
+function verdictCell(r) {
+  if (r.is_baseline) return $("span", { className: "star", textContent: "★ baseline" });
+  if (r.regressions_vs_baseline == null) return $("span", { className: "muted", textContent: "no baseline" });
+  return r.regressions_vs_baseline
+    ? $("span", { className: "bad", textContent: `✗ ${r.regressions_vs_baseline} regressed` })
+    : $("span", { className: "ok", textContent: "✓ no regressions" });
+}
+
+function checkChips(checks) {
+  return Object.entries(checks || {}).sort().map(([name, c]) =>
+    $("span", { className: "chip " + (c.passed === c.total ? "pass" : "fail"), textContent: `${name} ${c.passed}/${c.total}` }));
+}
+
+async function renderEvalList(seq) {
+  let runs;
+  try {
+    runs = await api("/eval_runs?limit=200");
+  } catch (e) {
+    if (seq === navSeq) evalsRoot().replaceChildren($("div", { className: "empty", textContent: `Failed to load eval runs: ${e.message}` }));
+    return;
+  }
+  if (seq !== navSeq) return;
+  const header = [
+    $("h2", {}, text("Eval runs")),
+    $("p", { className: "hint" },
+      text("Run a check from your terminal: "), $("code", { textContent: CHECK_CMD }),
+      text(". The first check becomes the baseline; later ones are compared against it.")),
+  ];
+  if (!runs.length) {
+    evalsRoot().replaceChildren(...header, $("div", { className: "empty", textContent: "No eval runs yet." }));
+    return;
+  }
+  evalsRoot().replaceChildren(...header, $("table", { className: "t" },
+    $("thead", {}, $("tr", {}, ...["Version", "Dataset", "Agent", "vs baseline", "Checks", "Items", "Started", "Status"]
+      .map((h) => $("th", { textContent: h, className: h === "Items" ? "num" : "" })))),
+    $("tbody", {}, ...runs.map((r) => $("tr", { className: "click", onclick: () => { location.hash = `#/evals/${r.run_id}`; } },
+      $("td", {}, $("b", { textContent: versionOf(r) }), $("div", { className: "muted", textContent: short(r.run_id) })),
+      $("td", { textContent: r.dataset_name }),
+      $("td", { className: "clip muted", textContent: r.agent, title: r.agent }),
+      $("td", {}, verdictCell(r)),
+      $("td", {}, ...checkChips(r.checks)),
+      $("td", { className: "num", textContent: r.item_count }),
+      $("td", { className: "muted", textContent: fmtWhen(r.started_at) }),
+      $("td", {}, $("span", { className: `status ${r.status}`, textContent: r.status })),
+    ))),
+  ));
+}
+
+function runStats(run) {
+  const checks = {};
+  const lat = [], cost = [], tok = [];
+  for (const res of run.results) {
+    for (const s of res.scores) {
+      if (s.passed != null) {
+        checks[s.scorer] ??= { passed: 0, total: 0 };
+        checks[s.scorer].total++;
+        if (s.passed) checks[s.scorer].passed++;
+      } else if (s.value != null) {
+        ({ latency_ms: lat, cost_usd: cost, total_tokens: tok })[s.scorer]?.push(Number(s.value));
+      }
+    }
+  }
+  const sum = (a) => a.length ? a.reduce((x, y) => x + y, 0) : null;
+  return { checks, p50: percentile(lat, 50), p95: percentile(lat, 95), cost: sum(cost), tokens: sum(tok) };
+}
+
+const tile = (k, v, s) => $("div", { className: "tile" },
+  $("div", { className: "k", textContent: k }), $("div", { className: "v", textContent: v }),
+  s ? $("div", { className: "s", textContent: s }) : null);
+
+async function renderEvalRun(runId, seq) {
+  let run, siblings;
+  try {
+    run = await api(`/eval_runs/${runId}`);
+    const q = new URLSearchParams({ dataset_name: run.dataset_name, agent: run.agent, status: "completed", limit: "100" });
+    siblings = (await api(`/eval_runs?${q}`)).filter((r) => r.run_id !== run.run_id);
+  } catch (e) {
+    if (seq === navSeq) evalsRoot().replaceChildren(
+      $("a", { className: "crumb", href: "#/evals", textContent: "← Eval runs" }),
+      $("div", { className: "empty", textContent: e.message }));
+    return;
+  }
+  if (seq !== navSeq) return;
+
+  const stats = runStats(run);
+  const setBaseline = async (on) => {
+    try {
+      await api(`/eval_runs/${run.run_id}/baseline`, { method: on ? "PUT" : "DELETE" });
+      route();
+    } catch (e) { alert(e.message); }
+  };
+  const compareSelect = $("select", { onchange: (e) => {
+    if (e.target.value) location.hash = `#/compare/${e.target.value}/${run.run_id}`;
+  } },
+    $("option", { value: "", textContent: siblings.length ? "Compare against…" : "No other runs to compare" }),
+    ...siblings.map((r) => $("option", { value: r.run_id,
+      textContent: `${r.is_baseline ? "★ " : ""}${versionOf(r)} · ${short(r.run_id)} · ${fmtWhen(r.started_at)}` })),
+  );
+  compareSelect.disabled = !siblings.length;
+
+  const checkSection = $("div", {}, $("div", { className: "muted", textContent: "Loading check…" }));
+
+  evalsRoot().replaceChildren(
+    $("a", { className: "crumb", href: "#/evals", textContent: "← Eval runs" }),
+    $("h2", {},
+      text(versionOf(run)),
+      $("span", { className: `status ${run.status}`, textContent: run.status }),
+      run.is_baseline ? $("span", { className: "star", textContent: "★ baseline" }) : null,
+    ),
+    $("div", { className: "meta" },
+      $("span", {}, text("run "), $("code", { textContent: run.run_id })),
+      $("span", { textContent: `dataset ${run.dataset_name}` }),
+      $("span", {}, text("agent "), $("code", { textContent: run.agent })),
+      $("span", { textContent: fmtWhen(run.started_at) }),
+      $("span", { textContent: fmtMs(ms(run.started_at, run.ended_at)) }),
+    ),
+    $("div", { className: "actions" },
+      run.is_baseline
+        ? $("button", { textContent: "Unset baseline", onclick: () => setBaseline(false) })
+        : $("button", { textContent: "★ Set as baseline", disabled: run.status !== "completed",
+            title: run.status !== "completed" ? "Only completed runs can be a baseline" : "",
+            onclick: () => setBaseline(true) }),
+      compareSelect,
+    ),
+    $("h3", { className: "section", textContent: "Check vs baseline" }),
+    checkSection,
+    $("h3", { className: "section", textContent: "Summary" }),
+    $("div", { className: "tiles" },
+      ...Object.entries(stats.checks).sort().map(([name, c]) =>
+        tile(name, `${c.passed}/${c.total}`, `${Math.round(100 * c.passed / c.total)}% passed`)),
+      tile("latency p50", fmtMs(stats.p50), stats.p95 != null ? `p95 ${fmtMs(stats.p95)}` : null),
+      tile("total cost", fmtCost(stats.cost)),
+      tile("total tokens", fmtInt(stats.tokens)),
+    ),
+    renderItems(run),
+  );
+
+  if (run.is_baseline) {
+    checkSection.replaceChildren($("p", { className: "hint",
+      textContent: `This run is the baseline for ${run.dataset_name} + ${run.agent}. New checks are compared against it.` }));
+  } else if (!run.baseline_run_id) {
+    checkSection.replaceChildren($("p", { className: "hint" },
+      text("No baseline for this dataset + agent yet. "),
+      run.status === "completed" ? text("Set this run as the baseline, or run ") : text("Run "),
+      $("code", { textContent: "check" }), text(" from your terminal.")));
+  } else {
+    try {
+      const cmp = await api(`/eval_runs/compare?baseline=${run.baseline_run_id}&candidate=${run.run_id}`);
+      if (seq === navSeq) checkSection.replaceChildren(renderComparison(cmp, { compact: true }));
+    } catch (e) {
+      if (seq === navSeq) checkSection.replaceChildren($("p", { className: "bad", textContent: `Check failed: ${e.message}` }));
+    }
+  }
+}
+
+function renderItems(run) {
+  const checkNames = [...new Set(run.results.flatMap((r) => r.scores.filter((s) => s.passed != null).map((s) => s.scorer)))].sort();
+  const failed = (r) => r.error || r.scores.some((s) => s.passed === false);
+  const onlyFailures = $("input", { type: "checkbox", onchange: () => draw() });
+  const tbody = $("tbody");
+  const draw = () => {
+    const rows = run.results.filter((r) => !onlyFailures.checked || failed(r));
+    tbody.replaceChildren(...rows.flatMap((r) => {
+      const byName = Object.fromEntries(r.scores.map((s) => [s.scorer, s]));
+      const detailRow = $("tr", { hidden: true }, $("td", { colSpan: 6 + checkNames.length }, itemDetail(r)));
+      const row = $("tr", { className: "click", onclick: () => {
+        detailRow.hidden = !detailRow.hidden;
+        row.classList.toggle("expanded", !detailRow.hidden);
+      } },
+        $("td", {}, $("span", { className: failed(r) ? "bad" : "ok", textContent: failed(r) ? "✗" : "✓" })),
+        $("td", {}, $("b", { textContent: r.item_id })),
+        $("td", { className: "clip", textContent: preview(r.input), title: preview(r.input) }),
+        $("td", { className: "clip muted", textContent: preview(r.output), title: preview(r.output) }),
+        ...checkNames.map((n) => {
+          const s = byName[n];
+          return $("td", {}, s ? $("span", { className: "chip " + (s.passed ? "pass" : "fail"), textContent: s.passed ? "pass" : "fail", title: s.reason || "" }) : $("span", { className: "muted", textContent: "—" }));
+        }),
+        $("td", { className: "num", textContent: fmtMs(byName.latency_ms?.value) }),
+        $("td", { className: "num", textContent: byName.cost_usd ? fmtCost(byName.cost_usd.value) : "—" }),
+      );
+      return [row, detailRow];
+    }));
+    if (!rows.length) tbody.replaceChildren($("tr", {}, $("td", { colSpan: 6 + checkNames.length, className: "muted", textContent: "No failing items." })));
+  };
+  draw();
+  return $("div", {},
+    $("h3", { className: "section" }, text(`Items (${run.results.length})`)),
+    $("label", { className: "hint", style: "display:inline-flex;gap:6px;align-items:center;margin-bottom:8px" }, onlyFailures, text("Only failures")),
+    $("table", { className: "t" },
+      $("thead", {}, $("tr", {},
+        $("th", {}), $("th", { textContent: "Item" }), $("th", { textContent: "Input" }), $("th", { textContent: "Output" }),
+        ...checkNames.map((n) => $("th", { textContent: n })),
+        $("th", { className: "num", textContent: "Latency" }), $("th", { className: "num", textContent: "Cost" }))),
+      tbody,
+    ),
+  );
+}
+
+function itemDetail(r) {
+  const reasons = r.scores.filter((s) => s.reason);
+  return $("div", {},
+    r.trace_id ? $("a", { href: `#/traces/${r.trace_id}`, textContent: "Open trace →" }) : $("span", { className: "muted", textContent: "No trace linked" }),
+    $("div", { className: "sbs" },
+      $("div", {}, $("div", { className: "label-sm", textContent: "Input" }), $("pre", { textContent: pretty(r.input) })),
+      $("div", {}, $("div", { className: "label-sm", textContent: "Expected" }), $("pre", { textContent: pretty(r.expected) })),
+    ),
+    $("div", { className: "label-sm", textContent: "Output" }), $("pre", { textContent: pretty(r.output) }),
+    r.error ? $("div", {}, $("div", { className: "label-sm", textContent: "Error" }), $("pre", { className: "error", textContent: r.error })) : null,
+    reasons.length ? $("div", {}, $("div", { className: "label-sm", textContent: "Scorer notes" }),
+      ...reasons.map((s) => $("div", {}, $("b", { textContent: s.scorer + ": " }), text(s.reason)))) : null,
+  );
+}
+
+function fmtMetric(name, v) {
+  if (name === "latency_ms") return fmtMs(v);
+  if (name === "cost_usd") return fmtCost(v);
+  return fmtInt(v);
+}
+
+// Shared by the run page's "check vs baseline" and the full compare page.
+function renderComparison(cmp, { compact = false } = {}) {
+  const b = cmp.baseline, c = cmp.candidate;
+  const n = cmp.regressions.length;
+  const verdict = $("div", { className: "verdict " + (n ? "bad" : "ok") },
+    text(n ? `✗ ${n} regression${n === 1 ? "" : "s"}` : "✓ No regressions"),
+    $("span", { className: "sub", textContent: `vs ${b.run_id === c.run_id ? "itself" : `baseline ${versionOf(b)} (${short(b.run_id)})`} · ${cmp.items_compared} items compared` + (cmp.fixes.length ? ` · ${cmp.fixes.length} fixed` : "") }),
+    compact ? $("a", { href: `#/compare/${b.run_id}/${c.run_id}`, textContent: "Full comparison →" }) : null,
+  );
+  const summary = $("table", { className: "t" },
+    $("thead", {}, $("tr", {}, $("th", {}), $("th", { className: "num", textContent: "Baseline" }),
+      $("th", { className: "num", textContent: "Candidate" }), $("th", { className: "num", textContent: "Change" }))),
+    $("tbody", {},
+      ...cmp.checks.map((k) => {
+        const d = k.candidate_passed - k.baseline_passed;
+        return $("tr", {}, $("td", { textContent: k.scorer }),
+          $("td", { className: "num", textContent: `${k.baseline_passed}/${k.total}` }),
+          $("td", { className: "num", textContent: `${k.candidate_passed}/${k.total}` }),
+          $("td", { className: "num " + (d < 0 ? "bad" : d > 0 ? "ok" : "muted"), textContent: (d > 0 ? "+" : "") + d }));
+      }),
+      ...cmp.metrics.map((m) => $("tr", {},
+        $("td", { textContent: `${m.scorer} ${m.aggregate}` }),
+        $("td", { className: "num", textContent: fmtMetric(m.scorer, m.baseline) }),
+        $("td", { className: "num", textContent: fmtMetric(m.scorer, m.candidate) }),
+        $("td", { className: "num" + (m.flagged ? " flag" : " muted"), textContent: `${m.change_pct >= 0 ? "+" : ""}${Math.round(m.change_pct)}%${m.flagged ? " ▲" : ""}` }),
+      )),
+    ),
+  );
+  const traceLinks = (r) => $("span", { className: "links" },
+    r.baseline_trace_id ? $("a", { href: `#/traces/${r.baseline_trace_id}`, textContent: "baseline trace" }) : null,
+    r.candidate_trace_id ? $("a", { href: `#/traces/${r.candidate_trace_id}`, textContent: "candidate trace" }) : null);
+  const regressions = cmp.regressions.map((r) => $("div", { className: "card" },
+    $("div", { className: "head" },
+      $("span", { className: "bad", textContent: "✗" }), $("b", { textContent: r.item_id }),
+      $("span", { className: "muted", textContent: `${r.scorers.join(", ")}: passed → failed` }), traceLinks(r)),
+    $("div", { className: "label-sm", textContent: "Input" }), $("pre", { textContent: pretty(r.input) }),
+    $("div", { className: "sbs" },
+      $("div", {}, $("div", { className: "label-sm", textContent: "Baseline output" }), $("pre", { textContent: pretty(r.baseline_output) })),
+      $("div", {}, $("div", { className: "label-sm", textContent: "Candidate output" }), $("pre", { textContent: pretty(r.candidate_output) })),
+    ),
+    ...Object.entries(r.reasons).map(([name, reason]) => $("div", { className: "bad", style: "margin-top:6px" }, $("b", { textContent: name + ": " }), text(reason))),
+    r.error ? $("pre", { className: "error", style: "margin-top:6px", textContent: r.error }) : null,
+  ));
+  return $("div", {},
+    verdict,
+    ...cmp.warnings.map((w) => $("div", { className: "warn", textContent: `⚠ ${w}` })),
+    summary,
+    n ? $("h3", { className: "section", textContent: `Regressions (${n})` }) : null,
+    ...regressions,
+    !compact && cmp.fixes.length ? $("h3", { className: "section", textContent: `Fixes (${cmp.fixes.length})` }) : null,
+    ...(compact ? [] : cmp.fixes.map((f) => $("div", { className: "card" },
+      $("div", { className: "head", style: "margin:0" },
+        $("span", { className: "ok", textContent: "✓" }), $("b", { textContent: f.item_id }),
+        $("span", { className: "muted", textContent: `${f.scorers.join(", ")}: failed → passed` }), traceLinks(f))))),
+  );
+}
+
+async function renderCompare(baselineId, candidateId, seq) {
+  let cmp;
+  try {
+    cmp = await api(`/eval_runs/compare?baseline=${encodeURIComponent(baselineId)}&candidate=${encodeURIComponent(candidateId)}`);
+  } catch (e) {
+    if (seq === navSeq) evalsRoot().replaceChildren(
+      $("a", { className: "crumb", href: "#/evals", textContent: "← Eval runs" }),
+      $("div", { className: "empty", textContent: `Could not compare: ${e.message}` }));
+    return;
+  }
+  if (seq !== navSeq) return;
+  const runLink = (r) => $("a", { href: `#/evals/${r.run_id}`, textContent: `${versionOf(r)} (${short(r.run_id)})` });
+  evalsRoot().replaceChildren(
+    $("a", { className: "crumb", href: `#/evals/${candidateId}`, textContent: "← Back to run" }),
+    $("h2", {}, text("Compare")),
+    $("div", { className: "meta" },
+      $("span", {}, text("baseline "), runLink(cmp.baseline)),
+      $("span", { textContent: "→" }),
+      $("span", {}, text("candidate "), runLink(cmp.candidate)),
+      $("span", { textContent: `dataset ${cmp.candidate.dataset_name}` }),
+      $("a", { href: `#/compare/${candidateId}/${baselineId}`, textContent: "⇄ swap" }),
+    ),
+    renderComparison(cmp),
+  );
+}
+
+/* ---------------- routing ---------------- */
+
+function show(view) {
+  document.getElementById("traces-view").hidden = view !== "traces";
+  document.getElementById("evals-view").hidden = view !== "evals";
+  document.getElementById("tab-traces").classList.toggle("active", view === "traces");
+  document.getElementById("tab-evals").classList.toggle("active", view === "evals");
+  document.getElementById("filter").hidden = view !== "traces";
+}
+
+// #/traces[/<id>], #/evals[/<run_id>], #/compare/<baseline>/<candidate>. Bare #<trace_id> still works.
+function route() {
+  const seq = ++navSeq;
+  const parts = location.hash.replace(/^#\/?/, "").split("/").filter(Boolean);
+  if (parts[0] === "evals") {
+    show("evals");
+    return parts[1] ? renderEvalRun(parts[1], seq) : renderEvalList(seq);
+  }
+  if (parts[0] === "compare" && parts[1] && parts[2]) {
+    show("evals");
+    return renderCompare(parts[1], parts[2], seq);
+  }
+  show("traces");
+  const id = parts[0] === "traces" ? parts[1] : parts[0];
+  if (id) return loadTrace(id);
+  selectedTrace = null;
+  document.getElementById("detail").replaceChildren($("div", { className: "empty", textContent: "Select a trace" }));
+  loadList();
+}
 
 let filterTimer;
 document.getElementById("filter").addEventListener("input", () => {
   clearTimeout(filterTimer);
   filterTimer = setTimeout(loadList, 250);
 });
-document.getElementById("refresh").addEventListener("click", () => {
-  loadList();
-  if (selectedTrace) loadTrace(selectedTrace);
-});
+document.getElementById("refresh").addEventListener("click", route);
 window.addEventListener("hashchange", route);
 route();
 </script>

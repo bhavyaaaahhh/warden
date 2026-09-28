@@ -106,6 +106,7 @@ def list_traces(agent_name: str | None = None, limit: int = 100):
                 """
                 SELECT t.trace_id, t.agent_name, t.version_tag, t.status,
                        t.input, t.started_at, t.ended_at,
+                       t.metadata->>'eval_run_id' AS eval_run_id,
                        count(s.span_id) AS span_count,
                        sum(s.tokens_input) AS tokens_input,
                        sum(s.tokens_output) AS tokens_output,
