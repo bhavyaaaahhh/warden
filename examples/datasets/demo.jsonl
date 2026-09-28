@@ -1,0 +1,10 @@
+{"id": "warden-records", "input": "what does warden record", "expected": {"contains": ["traces", "spans"]}}
+{"id": "regression-diffs", "input": "how do regression diffs work", "expected": {"contains": ["version"]}}
+{"id": "results-storage", "input": "which database stores eval results", "expected": {"contains": ["Postgres"]}}
+{"id": "ingestion", "input": "how are traces ingested over http", "expected": {"contains": ["FastAPI"]}}
+{"id": "strict-mode", "input": "what happens when an upload fails in strict mode", "expected": {"contains": ["error"]}}
+{"id": "datasets", "input": "how are datasets versioned", "expected": {"contains": ["JSONL"]}}
+{"id": "scorers", "input": "what do scorers produce", "expected": {"contains": ["pass"]}}
+{"id": "viewer", "input": "what does the viewer show", "expected": {"contains": ["timeline"]}}
+{"id": "cost", "input": "how is cost tracked", "expected": {"contains": ["dollars"]}}
+{"id": "schema", "input": "how is the database schema managed", "expected": {"contains": ["Alembic"]}}

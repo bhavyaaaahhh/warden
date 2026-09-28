@@ -8,6 +8,7 @@ from pydantic import BaseModel, Field
 # Keep these in sync with the CHECK constraints in the migration.
 TraceStatus = Literal["running", "success", "error"]
 SpanType = Literal["llm_call", "tool_call", "retrieval"]
+EvalRunStatus = Literal["running", "completed", "failed"]
 
 
 class TraceIn(BaseModel):
@@ -36,3 +37,34 @@ class SpanIn(BaseModel):
     cost_usd: Decimal | None = None
     error: str | None = None
 
+
+class EvalRunIn(BaseModel):
+    run_id: UUID
+    dataset_name: str
+    dataset_hash: str
+    agent: str
+    version_tag: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class EvalRunUpdate(BaseModel):
+    status: EvalRunStatus
+    version_tag: str | None = None
+
+
+class ScoreIn(BaseModel):
+    scorer: str
+    value: float | None = None
+    passed: bool | None = None
+    reason: str | None = None
+
+
+class EvalResultIn(BaseModel):
+    result_id: UUID
+    item_id: str
+    trace_id: UUID | None = None
+    input: Any = None
+    expected: Any = None
+    output: Any = None
+    error: str | None = None
+    scores: list[ScoreIn] = Field(default_factory=list)

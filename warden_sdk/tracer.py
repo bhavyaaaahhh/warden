@@ -2,6 +2,10 @@ import json
 import logging
 import os
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
+from contextvars import ContextVar
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any
 
@@ -29,6 +33,28 @@ def _jsonable(value: Any) -> Any:
     if value is None:
         return None
     return json.loads(json.dumps(value, default=str))
+
+
+@dataclass
+class _EvalItem:
+    run_id: str
+    item_id: str
+    traces: list["Trace"] = field(default_factory=list)
+
+
+# Set by the eval runner around each dataset item, so traces the agent opens
+# report back to the runner without the agent's code knowing it's being evaluated.
+_current_eval_item: ContextVar[_EvalItem | None] = ContextVar("warden_eval_item", default=None)
+
+
+@contextmanager
+def _eval_item(run_id: str, item_id: str) -> Iterator[_EvalItem]:
+    item = _EvalItem(run_id, item_id)
+    token = _current_eval_item.set(item)
+    try:
+        yield item
+    finally:
+        _current_eval_item.reset(token)
 
 
 class Span:
@@ -105,8 +131,22 @@ class Trace:
     def span(self, span_type: str, name: str, input: Any = None) -> Span:
         return Span(self, span_type, name, input)
 
+    @property
+    def spans(self) -> list[Span]:
+        return list(self._finished)
+
     def __enter__(self) -> "Trace":
         self.started_at = _now()
+        eval_item = _current_eval_item.get()
+        if eval_item is not None:
+            # Evals must never lose a trace, so they always run strict.
+            self.strict = True
+            self.metadata = {
+                **self.metadata,
+                "eval_run_id": eval_item.run_id,
+                "eval_item_id": eval_item.item_id,
+            }
+            eval_item.traces.append(self)
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
