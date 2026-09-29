@@ -9,6 +9,7 @@ from server.schemas import SpanIn, TraceIn
 
 router = APIRouter(tags=["traces"])
 
+
 @router.post("/traces", status_code=201)
 def create_trace(trace: TraceIn):
     with pool.connection() as conn:
@@ -31,6 +32,7 @@ def create_trace(trace: TraceIn):
             ),
         )
     return {"trace_id": trace.trace_id}
+
 
 @router.post("/spans", status_code=201)
 def create_spans(spans: list[SpanIn]):
@@ -67,6 +69,7 @@ def create_spans(spans: list[SpanIn]):
             )
     return {"inserted": len(spans)}
 
+
 @router.get("/traces")
 def list_traces(agent_name: str | None = None, limit: int = 100):
     with pool.connection() as conn:
@@ -90,6 +93,7 @@ def list_traces(agent_name: str | None = None, limit: int = 100):
                 {"agent_name": agent_name, "limit": min(limit, 500)},
             )
             return cur.fetchall()
+
 
 @router.get("/traces/{trace_id}")
 def get_trace(trace_id: UUID):

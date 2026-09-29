@@ -14,13 +14,16 @@ def latency_ms(case: Case) -> Score | None:
     )
     return Score(value=total * 1000, passed=None)
 
+
 def cost_usd(case: Case) -> Score | None:
     costs = [s.cost_usd for s in case.spans if s.cost_usd is not None]
     return Score(value=sum(costs), passed=None) if costs else None
 
+
 def total_tokens(case: Case) -> Score | None:
     counts = [n for s in case.spans for n in (s.tokens_input, s.tokens_output) if n is not None]
     return Score(value=float(sum(counts)), passed=None) if counts else None
+
 
 def turns(case: Case) -> Score | None:
     if case.turns is None:

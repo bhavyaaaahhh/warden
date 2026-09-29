@@ -11,6 +11,7 @@ def _contains(output: Any, needles: list[str]) -> str | None:
     missing = [n for n in needles if n.lower() not in haystack]
     return f"missing {missing}" if missing else None
 
+
 def contains(case: Case) -> Score | None:
     needles = case.expected.get("contains")
     if not needles:
@@ -19,11 +20,13 @@ def contains(case: Case) -> Score | None:
     missing = len(needles) - sum(n.lower() in _text(case.output).lower() for n in needles)
     return Score(value=1 - missing / len(needles), passed=reason is None, reason=reason)
 
+
 def exact_match(case: Case) -> Score | None:
     if "exact" not in case.expected:
         return None
     passed = _text(case.output).strip() == str(case.expected["exact"]).strip()
     return Score(value=float(passed), passed=passed, reason=None if passed else "output differs")
+
 
 def no_errors(case: Case) -> Score:
     errors = [f"{s.name}: {s.error}" for s in case.spans if s.error]
@@ -31,6 +34,7 @@ def no_errors(case: Case) -> Score:
     if case.error and not any(s.error == case.error for s in case.spans):
         errors.insert(0, case.error)
     return Score(value=float(not errors), passed=not errors, reason="; ".join(errors) or None)
+
 
 def turn_expectations(case: Case) -> list[Score] | None:
     """One criterion per scripted turn that has an `expect` step after it."""

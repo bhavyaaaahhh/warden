@@ -25,13 +25,16 @@ class EvalContext:
     def thread_id(self) -> str:
         return f"{self.run_id}:{self.item_id}:{self.trial}"
 
+
 # How the runner calls an agent: with its input and an EvalContext.
 AgentCall = Callable[[Any, EvalContext], Any]
+
 
 class InfraError(Exception):
     """Raise from an agent to say a failure wasn't the agent's fault (rate limit,
     provider outage). The trial is retried, and if it keeps failing it's left
     out of pass rates instead of counting as a failure."""
+
 
 def _agent_call(agent: Callable) -> AgentCall:
     """Pass the EvalContext only to agents that ask for it with a `context` parameter."""
@@ -43,6 +46,7 @@ def _agent_call(agent: Callable) -> AgentCall:
         return lambda arg, ctx: agent(arg, context=ctx)
     return lambda arg, ctx: agent(arg)
 
+
 def _as_messages(reply: Any) -> list[dict[str, Any]]:
     """A multi-turn agent returns a string, one message, or a list of messages."""
     if isinstance(reply, str):
@@ -52,6 +56,7 @@ def _as_messages(reply: Any) -> list[dict[str, Any]]:
     if isinstance(reply, list) and all(isinstance(m, dict) for m in reply):
         return reply
     raise TypeError(f"multi-turn agent must return a str, a message dict, or a list of them, not {type(reply).__name__}")
+
 
 def _tool_names(messages: list[dict[str, Any]], traces: list[Trace]) -> list[str] | None:
     # Prefer the tool calls in the messages the agent returned (OpenAI shape);
@@ -67,6 +72,7 @@ def _tool_names(messages: list[dict[str, Any]], traces: list[Trace]) -> list[str
         return [s.name for t in traces for s in t.spans if s.span_type == "tool_call"]
     return None
 
+
 def _run_single(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int) -> dict[str, Any]:
     output, error = None, None
     with _eval_item(run_id, item["id"], trial) as ctx:
@@ -77,6 +83,7 @@ def _run_single(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int)
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
     return {"output": output, "error": error, "traces": ctx.traces, "transcript": None, "turns": None}
+
 
 def _run_conversation(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int) -> dict[str, Any]:
     """Play the scripted user turns, calling the agent with the conversation so far each time."""

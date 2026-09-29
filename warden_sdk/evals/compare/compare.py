@@ -46,6 +46,7 @@ TRANSITIONS = {
 # Report order, worst first.
 TRANSITION_ORDER = ["broke", "degraded", "fixed", "stabilised", "improved"]
 
+
 def _outcome(score: dict[str, Any]) -> str | None:
     # Runs stored before outcomes existed only have `passed`.
     if score.get("outcome"):
@@ -53,6 +54,7 @@ def _outcome(score: dict[str, Any]) -> str | None:
     if score.get("passed") is not None:
         return "pass" if score["passed"] else "fail"
     return None
+
 
 def _trial_view(result: dict[str, Any]) -> tuple[dict[str, tuple[str, str | None]], dict[str, float], dict[str, str]]:
     """One trial's checks collapsed to one outcome per scorer, plus its metric values.
@@ -86,6 +88,7 @@ def _trial_view(result: dict[str, Any]) -> tuple[dict[str, tuple[str, str | None
             checks[name] = ("pass", None)
     return checks, metrics, versions
 
+
 def _cases(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
     cases: dict[str, dict[str, Any]] = {}
     for r in sorted(run["results"], key=lambda r: r.get("trial") or 0):
@@ -96,6 +99,7 @@ def _cases(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
         checks, metrics, versions = _trial_view(r)
         case["trials"].append({"checks": checks, "metrics": metrics, "versions": versions, "result": r})
     return cases
+
 
 def _tally(case: dict[str, Any], scorer: str) -> dict[str, Any] | None:
     """Passes, valid trials and unscored trials of one scorer on one case."""
@@ -110,17 +114,21 @@ def _tally(case: dict[str, Any], scorer: str) -> dict[str, Any] | None:
         "reason": next((why for o, why in outcomes if o == "fail"), None),
     }
 
+
 def _state(t: dict[str, Any]) -> str:
     return "pass" if t["c"] == t["n"] else "fail" if t["c"] == 0 else "flaky"
+
 
 def _coverage(tallies: list[dict[str, Any]]) -> float | None:
     attempted = sum(t["n"] + t["unscored"] + t["infra"] for t in tallies)
     return sum(t["n"] for t in tallies) / attempted if attempted else None
 
+
 def _pass_k(tallies: list[dict[str, Any]], k: int) -> float | None:
     # Only cases with all k trials valid; fewer trials would inflate pass^k.
     full = [t for t in tallies if t["n"] == k]
     return mean(stats.pass_hat_k(t["n"], t["c"], k) for t in full) if full and k > 1 else None
+
 
 def _compare_check(
     scorer: str, ids: list[str], ca: dict, cb: dict, seed: str, intervals: bool = True
@@ -174,6 +182,7 @@ def _compare_check(
     }
     return row, transitions, (list(tallies_a.values()), list(tallies_b.values()))
 
+
 def _verdict(row: dict[str, Any]) -> tuple[str, str | None]:
     if row["incomparable"]:
         return "incomparable", "the scorer's version changed between runs"
@@ -192,12 +201,14 @@ def _verdict(row: dict[str, Any]) -> tuple[str, str | None]:
         return "no detectable change", f"{d} case(s) flipped; at least {needed} flipping the same way are needed"
     return "no detectable change", None
 
+
 def _aggregate(values: list[float], how: str) -> float:
     if how == "total":
         return sum(values)
     if how == "mean":
         return mean(values)
     return stats.percentile(values, float(how.removeprefix("p")))
+
 
 def _compare_metric(scorer: str, ids: list[str], ca: dict, cb: dict, seed: str) -> list[dict[str, Any]]:
     def case_mean(case: dict) -> float | None:
@@ -239,9 +250,11 @@ def _compare_metric(scorer: str, ids: list[str], ca: dict, cb: dict, seed: str) 
         })
     return rows
 
+
 def _summary(run: dict[str, Any]) -> dict[str, Any]:
     keys = ("run_id", "version_tag", "status", "dataset_name", "agent", "started_at", "trials")
     return {k: run.get(k) for k in keys}
+
 
 def compare_runs(a: dict[str, Any], b: dict[str, Any], intervals: bool = True) -> dict[str, Any]:
     """Compare candidate run B against baseline run A. Pure data, no I/O.

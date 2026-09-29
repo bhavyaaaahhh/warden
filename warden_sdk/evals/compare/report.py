@@ -10,8 +10,10 @@ def _short(value: Any, width: int = 110) -> str:
     text = value if isinstance(value, str) else json.dumps(value, default=str)
     return text if len(text) <= width else text[: width - 1] + "…"
 
+
 def _label(run: dict[str, Any]) -> str:
     return f"{run['version_tag'] or '(untagged)'} (run {str(run['run_id'])[:8]})"
+
 
 def _fmt_num(value: float) -> str:
     if abs(value) >= 100:
@@ -20,8 +22,10 @@ def _fmt_num(value: float) -> str:
         return f"{value:.2f}"
     return f"{value:.6f}"
 
+
 def _fmt_rate(value: float | None) -> str:
     return "-" if value is None else f"{value:.0%}"
+
 
 def _fmt_ci(ci: list[float] | None, pct: bool = False) -> str:
     if not ci:
@@ -30,7 +34,9 @@ def _fmt_ci(ci: list[float] | None, pct: bool = False) -> str:
         return f"[{ci[0]:+.0f}%, {ci[1]:+.0f}%]"
     return f"[{ci[0] * 100:+.0f}, {ci[1] * 100:+.0f}]"
 
+
 VERDICT_MARKS = {"regression": "✗", "improvement": "✓", "inconclusive": "?", "incomparable": "?"}
+
 
 def print_report(cmp: dict[str, Any]) -> int:
     """Print a compare_runs() result as a terminal report. Returns the exit code."""

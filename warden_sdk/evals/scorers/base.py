@@ -12,6 +12,7 @@ from warden_sdk.tracer import Span, Trace
 # stays out of pass rates instead of counting as either.
 Outcome = Literal["pass", "fail", "unscored"]
 
+
 @dataclass
 class Case:
     """Everything a scorer can look at for one trial of one dataset item."""
@@ -35,6 +36,7 @@ class Case:
     def spans(self) -> list[Span]:
         return [s for t in self.traces for s in t.spans]
 
+
 @dataclass
 class Score:
     value: float | None
@@ -55,10 +57,12 @@ class Score:
     def unscored(cls, reason: str, criterion: str = "") -> "Score":
         return cls(value=None, passed=None, reason=reason, outcome="unscored", criterion=criterion)
 
+
 # Returning None means "this scorer doesn't apply to this item". A scorer can
 # return a list to report several criteria. Give it a `version` attribute and
 # comparisons refuse to compare its scores across versions.
 Scorer = Callable[[Case], Score | list[Score] | None]
+
 
 def _text(output: Any) -> str:
     return output if isinstance(output, str) else json.dumps(output, default=str)

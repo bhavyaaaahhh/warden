@@ -11,6 +11,7 @@ from warden_sdk.tracer import WARDEN_URL
 def client() -> httpx.Client:
     return httpx.Client(base_url=WARDEN_URL, timeout=10.0)
 
+
 def fetch_run(client: httpx.Client, ref: str, exclude_run_id: str | None = None) -> dict[str, Any]:
     """Accept either a run id or a version tag (latest completed run with that tag).
 

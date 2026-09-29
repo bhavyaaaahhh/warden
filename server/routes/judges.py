@@ -37,7 +37,6 @@ def latest_judge_validation(scorer_version: str):
             return cur.fetchone()
 
 
-
 def judge_warnings(runs: list[dict]) -> list[str]:
     """Warnings for judge scorers in these runs that haven't passed validation."""
     warnings = [validation_warning(v, latest_judge_validation(v)) for v in judge_versions(runs)]

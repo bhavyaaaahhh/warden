@@ -11,6 +11,7 @@ def case_hash(item: dict[str, Any]) -> str:
     canonical = json.dumps(item, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode()).hexdigest()
 
+
 def _check_turns(where: str, turns: Any) -> None:
     if not isinstance(turns, list) or not any(isinstance(s, dict) and "user" in s for s in turns):
         raise ValueError(f"{where}: 'turns' must be a list with at least one {{'user': ...}} step")
@@ -22,6 +23,7 @@ def _check_turns(where: str, turns: Any) -> None:
         if kind == "expect" and previous != "user":
             raise ValueError(f"{where}: each 'expect' step must follow a 'user' step (merge repeated expects into one)")
         previous = kind
+
 
 def load_dataset(path: Path) -> tuple[list[dict[str, Any]], str]:
     raw = path.read_bytes()

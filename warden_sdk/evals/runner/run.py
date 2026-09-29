@@ -25,6 +25,7 @@ INFRA_ATTEMPTS = 3
 
 DEFAULT_CONCURRENCY = 4
 
+
 def _score(case: Case, scorers: dict[str, Scorer]) -> list[dict[str, Any]]:
     scores = []
     for name, scorer in scorers.items():
@@ -37,6 +38,7 @@ def _score(case: Case, scorers: dict[str, Scorer]) -> list[dict[str, Any]]:
             if score is not None:
                 scores.append({"scorer": name, "scorer_version": getattr(scorer, "version", None), **score.__dict__})
     return scores
+
 
 def _run_trial(
     run_id: str, item: dict[str, Any], agent: AgentCall, scorers: dict[str, Scorer], trial: int
@@ -73,6 +75,7 @@ def _run_trial(
     )
     return result, traces[0].version_tag if traces else None
 
+
 def _result(item, trial, termination, trace_id, error, output, transcript, turns, scores) -> dict[str, Any]:
     return {
         "result_id": str(uuid.uuid4()),
@@ -89,6 +92,7 @@ def _result(item, trial, termination, trace_id, error, output, transcript, turns
         "turns": turns,
         "scores": scores,
     }
+
 
 def _format_item(item_id: str, results: list[dict[str, Any]]) -> str:
     """One line per item: which trials failed which checks."""
@@ -108,6 +112,7 @@ def _format_item(item_id: str, results: list[dict[str, Any]]) -> str:
         count = f" ×{len(reasons)}" if len(results) > 1 else ""
         parts.append(f"{label}{count}: {reasons[0]}")
     return "  ".join(parts)
+
 
 def run_eval(
     dataset_path: Path,

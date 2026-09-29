@@ -170,6 +170,5 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     return 0
 
 
-
 def _judge(args: argparse.Namespace) -> LLMJudge:
     return llm_judge(model=ClaudeModel(args.judge_model, args.judge_effort))
