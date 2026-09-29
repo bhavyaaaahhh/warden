@@ -6,6 +6,11 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from warden_sdk.evals.runner.simulator import (
+    DEFAULT_MAX_TURNS,
+    SimulatorError,
+    UserSimulator,
+)
 from warden_sdk.tracer import Trace, WardenError, _eval_item, _jsonable
 
 
@@ -82,40 +87,90 @@ def _run_single(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int)
             raise
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
-    return {"output": output, "error": error, "traces": ctx.traces, "transcript": None, "turns": None}
+    return {"output": output, "error": error, "traces": ctx.traces, "transcript": None, "turns": None, "simulation": None}
+
+
+class _Conversation:
+    """The state of one multi-turn trial, shared by scripted and simulated conversations."""
+
+    def __init__(self, run_id: str, item_id: str, trial: int, agent: AgentCall):
+        self.run_id, self.item_id, self.trial, self.agent = run_id, item_id, trial, agent
+        self.messages: list[dict[str, Any]] = []
+        self.turns: list[dict[str, Any]] = []
+        self.traces: list[Trace] = []
+        self.error: str | None = None
+
+    def play(self, user_message: str) -> None:
+        """Send one user message and record the agent's reply as a turn."""
+        self.messages.append({"role": "user", "content": user_message})
+        reply: list[dict[str, Any]] = []
+        started = time.monotonic()
+        with _eval_item(self.run_id, self.item_id, self.trial) as ctx:
+            try:
+                reply = _as_messages(self.agent(list(self.messages), EvalContext(self.run_id, self.item_id, self.trial)))
+            except (WardenError, InfraError):
+                raise
+            except Exception as e:
+                self.error = f"{type(e).__name__}: {e}"
+        self.messages.extend(reply)
+        self.traces.extend(ctx.traces)
+        self.turns.append({
+            "index": len(self.turns),
+            "user": user_message,
+            "messages": _jsonable(reply),
+            "tool_calls": _tool_names(reply, ctx.traces),
+            "error": self.error,
+            "duration_ms": (time.monotonic() - started) * 1000,
+            "trace_ids": [t.trace_id for t in ctx.traces],
+        })
+
+    def result(self, simulation: dict[str, Any] | None = None) -> dict[str, Any]:
+        last = next((m.get("content") for m in reversed(self.messages) if m.get("role") == "assistant"), None)
+        return {
+            "output": last,
+            "error": self.error,
+            "traces": self.traces,
+            "transcript": _jsonable(self.messages),
+            "turns": self.turns,
+            "simulation": simulation,
+        }
 
 
 def _run_conversation(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int) -> dict[str, Any]:
     """Play the scripted user turns, calling the agent with the conversation so far each time."""
-    messages: list[dict[str, Any]] = []
-    turns: list[dict[str, Any]] = []
-    traces: list[Trace] = []
-    error = None
+    convo = _Conversation(run_id, item["id"], trial, agent)
     for step in item["turns"]:
-        if "user" not in step:
-            continue
-        messages.append({"role": "user", "content": step["user"]})
-        reply: list[dict[str, Any]] = []
-        started = time.monotonic()
-        with _eval_item(run_id, item["id"], trial) as ctx:
+        if "user" in step:
+            convo.play(step["user"])
+            if convo.error:
+                break  # the conversation can't go on after the agent raised
+    return convo.result()
+
+
+def _run_simulated(
+    run_id: str, item: dict[str, Any], agent: AgentCall, trial: int, simulator: UserSimulator
+) -> dict[str, Any]:
+    """Let the simulated user talk to the agent until it stops, the agent raises, or max_turns."""
+    scenario = item["scenario"]
+    opening = scenario.get("opening", [])
+    convo = _Conversation(run_id, item["id"], trial, agent)
+    stopped_by, stop_reason = "max_turns", None
+    for i in range(scenario.get("max_turns", DEFAULT_MAX_TURNS)):
+        if i < len(opening):
+            message = opening[i]
+        else:
             try:
-                reply = _as_messages(agent(list(messages), EvalContext(run_id, item["id"], trial)))
-            except (WardenError, InfraError):
-                raise
-            except Exception as e:
-                error = f"{type(e).__name__}: {e}"
-        messages.extend(reply)
-        traces.extend(ctx.traces)
-        turns.append({
-            "index": len(turns),
-            "user": step["user"],
-            "messages": _jsonable(reply),
-            "tool_calls": _tool_names(reply, ctx.traces),
-            "error": error,
-            "duration_ms": (time.monotonic() - started) * 1000,
-            "trace_ids": [t.trace_id for t in ctx.traces],
-        })
-        if error:
-            break  # the conversation can't go on after the agent raised
-    last = next((m.get("content") for m in reversed(messages) if m.get("role") == "assistant"), None)
-    return {"output": last, "error": error, "traces": traces, "transcript": _jsonable(messages), "turns": turns}
+                message, stop_reason = simulator.next_turn(scenario, convo.messages)
+            except SimulatorError as e:
+                # The simulated user failing isn't the agent's fault.
+                raise InfraError(f"simulated user failed: {e}") from e
+            if message is None:
+                if not convo.turns:
+                    raise InfraError("simulated user stopped before the agent said anything")
+                stopped_by = "simulator"
+                break
+        convo.play(message)
+        if convo.error:
+            stopped_by = "agent_error"
+            break
+    return convo.result({"simulator": simulator.version, "stopped_by": stopped_by, "stop_reason": stop_reason})

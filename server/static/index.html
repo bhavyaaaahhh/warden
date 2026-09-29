@@ -542,8 +542,16 @@ function checkOf(r, name) {
   return unscored ? { outcome: "unscored", reason: unscored.reason } : { outcome: "pass", reason: null };
 }
 
+const STOPPED_BY = {
+  simulator: (reason) => `the simulated user stopped (${reason})`,
+  max_turns: () => "it ran out of turns",
+  agent_error: () => "the agent raised an error",
+};
+
 function conversation(r) {
-  return $("div", {}, $("div", { className: "label-sm", textContent: "Conversation" }),
+  const sim = r.simulation;
+  return $("div", {}, $("div", { className: "label-sm", textContent: sim ? "Conversation with a simulated user" : "Conversation" }),
+    sim ? $("p", { className: "hint", textContent: `Ended because ${(STOPPED_BY[sim.stopped_by] || (() => sim.stopped_by))(sim.stop_reason)} · ${sim.simulator}` }) : null,
     ...r.turns.map((t) => $("div", { className: "card" },
       $("div", {}, $("b", { textContent: `Turn ${t.index + 1} · user: ` }), text(t.user)),
       ...t.messages.filter((m) => m.role === "assistant" && m.content).map((m) => $("div", {}, $("b", { textContent: "agent: " }), text(m.content))),

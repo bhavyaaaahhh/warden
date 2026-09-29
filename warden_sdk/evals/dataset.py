@@ -5,6 +5,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from warden_sdk.evals.runner.simulator import check_scenario
+
 
 def case_hash(item: dict[str, Any]) -> str:
     """Content hash of one dataset item, so comparisons only pair unchanged cases."""
@@ -36,10 +38,12 @@ def load_dataset(path: Path) -> tuple[list[dict[str, Any]], str]:
             item = json.loads(line)
         except json.JSONDecodeError as e:
             raise ValueError(f"{path}:{lineno}: invalid JSON: {e}") from e
-        if "id" not in item or ("input" in item) == ("turns" in item):
-            raise ValueError(f"{path}:{lineno}: each item needs 'id' and exactly one of 'input' or 'turns'")
+        if "id" not in item or sum(k in item for k in ("input", "turns", "scenario")) != 1:
+            raise ValueError(f"{path}:{lineno}: each item needs 'id' and exactly one of 'input', 'turns' or 'scenario'")
         if "turns" in item:
             _check_turns(f"{path}:{lineno}", item["turns"])
+        if "scenario" in item:
+            check_scenario(f"{path}:{lineno}", item["scenario"])
         item_id = str(item["id"])
         if item_id in seen:
             raise ValueError(f"{path}:{lineno}: duplicate id {item_id!r}")

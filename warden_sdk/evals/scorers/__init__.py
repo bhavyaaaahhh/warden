@@ -4,6 +4,7 @@ from warden_sdk.evals.scorers.checks import (
     exact_match,
     no_errors,
     turn_expectations,
+    user_goal_met,
 )
 from warden_sdk.evals.scorers.metrics import cost_usd, latency_ms, total_tokens, turns
 from warden_sdk.evals.scorers.tools import ToolsMatch, match_tools, tool_calls
@@ -14,6 +15,7 @@ SCORERS: dict[str, Scorer] = {
     "no_errors": no_errors,
     "tool_calls": tool_calls,
     "turn_expectations": turn_expectations,
+    "user_goal_met": user_goal_met,
     "latency_ms": latency_ms,
     "cost_usd": cost_usd,
     "total_tokens": total_tokens,

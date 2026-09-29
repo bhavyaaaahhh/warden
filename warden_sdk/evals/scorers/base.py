@@ -26,6 +26,8 @@ class Case:
     # ({"index", "user", "messages", "tool_calls", "error", "duration_ms"}).
     transcript: list[dict[str, Any]] | None = None
     turns: list[dict[str, Any]] | None = None
+    # Scenario items only: {"simulator", "stopped_by", "stop_reason"}.
+    simulation: dict[str, Any] | None = None
     trial: int = 0
 
     @property

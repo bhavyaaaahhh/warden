@@ -15,8 +15,10 @@ from warden_sdk.evals.runner.harness import (
     InfraError,
     _agent_call,
     _run_conversation,
+    _run_simulated,
     _run_single,
 )
+from warden_sdk.evals.runner.simulator import UserSimulator
 from warden_sdk.evals.scorers import SCORERS, Case, Score, Scorer
 from warden_sdk.tracer import WARDEN_URL, _jsonable
 
@@ -40,20 +42,42 @@ def _score(case: Case, scorers: dict[str, Scorer]) -> list[dict[str, Any]]:
     return scores
 
 
+def _play(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int, simulator: UserSimulator) -> dict[str, Any]:
+    if "scenario" in item:
+        return _run_simulated(run_id, item, agent, trial, simulator)
+    if "turns" in item:
+        return _run_conversation(run_id, item, agent, trial)
+    return _run_single(run_id, item, agent, trial)
+
+
+def _termination(played: dict[str, Any]) -> str:
+    if played["error"]:
+        return "agent_error"
+    # Running out of turns is an outcome of the agent's run, not a failure to measure it.
+    if (played["simulation"] or {}).get("stopped_by") == "max_turns":
+        return "max_turns"
+    return "completed"
+
+
 def _run_trial(
-    run_id: str, item: dict[str, Any], agent: AgentCall, scorers: dict[str, Scorer], trial: int
+    run_id: str,
+    item: dict[str, Any],
+    agent: AgentCall,
+    scorers: dict[str, Scorer],
+    trial: int,
+    simulator: UserSimulator | None = None,
 ) -> tuple[dict[str, Any], str | None]:
-    run = _run_conversation if "turns" in item else _run_single
+    simulator = simulator or UserSimulator()
     for attempt in range(1, INFRA_ATTEMPTS + 1):
         try:
-            played = run(run_id, item, agent, trial)
+            played = _play(run_id, item, agent, trial, simulator)
             break
         except InfraError as e:
             infra_error = f"InfraError: {e}"
             print(f"  ! {item['id']} trial {trial + 1}: infra error ({e}), attempt {attempt}/{INFRA_ATTEMPTS}")
     else:
         # Retries exhausted: store the trial with no scores so it's excluded, not failed.
-        return _result(item, trial, "infra_error", None, infra_error, None, None, None, []), None
+        return _result(item, trial, "infra_error", None, {"error": infra_error}, []), None
 
     traces = played["traces"]
     if not traces:
@@ -66,17 +90,17 @@ def _run_trial(
         traces=traces,
         transcript=played["transcript"],
         turns=played["turns"],
+        simulation=played["simulation"],
         trial=trial,
     )
-    termination = "agent_error" if played["error"] else "completed"
-    result = _result(
-        item, trial, termination, traces[0].trace_id if traces else None,
-        played["error"], played["output"], played["transcript"], played["turns"], _score(case, scorers),
-    )
+    trace_id = traces[0].trace_id if traces else None
+    result = _result(item, trial, _termination(played), trace_id, played, _score(case, scorers))
     return result, traces[0].version_tag if traces else None
 
 
-def _result(item, trial, termination, trace_id, error, output, transcript, turns, scores) -> dict[str, Any]:
+def _result(
+    item: dict[str, Any], trial: int, termination: str, trace_id: str | None, played: dict[str, Any], scores: list
+) -> dict[str, Any]:
     return {
         "result_id": str(uuid.uuid4()),
         "item_id": item["id"],
@@ -84,12 +108,13 @@ def _result(item, trial, termination, trace_id, error, output, transcript, turns
         "case_hash": case_hash(item),
         "termination": termination,
         "trace_id": trace_id,
-        "input": _jsonable(item.get("input", item.get("turns"))),
+        "input": _jsonable(item.get("input", item.get("turns", item.get("scenario")))),
         "expected": _jsonable(item.get("expected")),
-        "output": _jsonable(output),
-        "error": error,
-        "transcript": transcript,
-        "turns": turns,
+        "output": _jsonable(played.get("output")),
+        "error": played.get("error"),
+        "transcript": played.get("transcript"),
+        "turns": played.get("turns"),
+        "simulation": played.get("simulation"),
         "scores": scores,
     }
 
@@ -121,16 +146,19 @@ def run_eval(
     scorers: dict[str, Scorer] | None = None,
     trials: int = 1,
     concurrency: int = DEFAULT_CONCURRENCY,
+    simulator: UserSimulator | None = None,
 ) -> str:
     """Run every dataset item `trials` times through the agent, score it, and store the results.
 
     `agent` is an import path ('package.module:function') or the function itself.
-    Up to `concurrency` trials run at once, in threads.
+    Up to `concurrency` trials run at once, in threads. `simulator` plays the
+    user in scenario items (default: a UserSimulator on the default model).
     """
     items, dataset_hash = load_dataset(dataset_path)
     target = agent_name(agent)
     call = _agent_call(load_agent(agent) if isinstance(agent, str) else agent)
     scorers = scorers or SCORERS
+    simulator = simulator or UserSimulator()
     run_id = str(uuid.uuid4())
 
     with httpx.Client(base_url=WARDEN_URL, timeout=10.0) as client:
@@ -154,7 +182,7 @@ def run_eval(
         pool = ThreadPoolExecutor(max_workers=max(1, concurrency))
         try:
             pending = {
-                pool.submit(_run_trial, run_id, item, call, scorers, trial)
+                pool.submit(_run_trial, run_id, item, call, scorers, trial, simulator)
                 for item in items
                 for trial in range(trials)
             }

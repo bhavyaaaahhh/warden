@@ -77,3 +77,18 @@ def turn_expectations(case: Case) -> list[Score] | None:
             Score(value=float(not problems), passed=not problems, reason="; ".join(problems) or None, criterion=criterion)
         )
     return scores or None
+
+
+def user_goal_met(case: Case) -> Score | None:
+    """Whether the simulated user said its goal was met, for scenario items.
+
+    This is the simulated user's own opinion, so it's only as good as the
+    simulator. Prefer a judge criterion or a tool check for anything that matters.
+    """
+    if case.simulation is None:
+        return None
+    stopped_by, reason = case.simulation.get("stopped_by"), case.simulation.get("stop_reason")
+    if stopped_by == "simulator" and reason == "goal_met":
+        return Score(value=1.0, passed=True)
+    why = {"max_turns": "ran out of turns", "agent_error": "the agent raised"}.get(stopped_by, f"user {reason}")
+    return Score(value=0.0, passed=False, reason=why)

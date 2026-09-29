@@ -32,17 +32,32 @@ class ClaudeModel:
     only holds if the same judge graded both.
     """
 
-    def __init__(self, model: str = DEFAULT_MODEL, effort: str = "low", max_tokens: int = 16000, client: Any = None):
-        import anthropic  # imported here so the SDK is only needed when a Claude judge is used
-
+    def __init__(
+        self,
+        model: str = DEFAULT_MODEL,
+        effort: str = "low",
+        max_tokens: int = 16000,
+        client: Any = None,
+        lazy: bool = False,
+    ):
+        """lazy=True defers creating the SDK client (and so needing credentials) until the first call."""
         self.name = f"{model}@{effort}"
         self.model = model
         self.effort = effort
         self.max_tokens = max_tokens
-        self._anthropic = anthropic
-        self._client = client or anthropic.Anthropic()
+        self._client = client if client is not None or lazy else self._new_client()
+
+    @staticmethod
+    def _new_client() -> Any:
+        import anthropic  # imported here so the SDK is only needed when a Claude model is used
+
+        return anthropic.Anthropic()
 
     def json(self, system: str, messages: list[dict[str, Any]], schema: dict[str, Any]) -> dict[str, Any]:
+        import anthropic
+
+        if self._client is None:
+            self._client = self._new_client()
         try:
             response = self._client.messages.create(
                 model=self.model,
@@ -51,10 +66,10 @@ class ClaudeModel:
                 messages=messages,
                 output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": schema}},
             )
-        except (self._anthropic.RateLimitError, self._anthropic.APIConnectionError) as e:
+        except (anthropic.RateLimitError, anthropic.APIConnectionError) as e:
             # The SDK already retried these; let the runner decide what an infra failure means.
             raise ModelError(f"{type(e).__name__}: {e}") from e
-        except self._anthropic.APIStatusError as e:
+        except anthropic.APIStatusError as e:
             if e.status_code >= 500:
                 raise ModelError(f"API error {e.status_code}") from e
             raise  # 4xx other than 429 is a bug in the request, not a flaky judge
