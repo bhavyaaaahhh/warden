@@ -35,5 +35,5 @@ def fake_server(monkeypatch):
     def client(*args, **kwargs):
         return real_client(*args, transport=httpx.MockTransport(server.handle), **kwargs)
 
-    monkeypatch.setattr("warden_sdk.evals.runner.httpx.Client", client)
+    monkeypatch.setattr("warden_sdk.evals.runner.run.httpx.Client", client)
     return server

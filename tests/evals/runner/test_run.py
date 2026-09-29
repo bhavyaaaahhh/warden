@@ -5,7 +5,7 @@ import time
 import pytest
 
 from warden_sdk.evals import EvalContext, Score, run_eval
-from warden_sdk.evals.runner import load_scorer
+from warden_sdk.evals.loading import load_scorer
 
 
 def _dataset(tmp_path, lines):
@@ -88,7 +88,7 @@ polite.version = "v1"
 
 
 def test_custom_scorer_by_import_path(tmp_path, fake_server):
-    name, scorer = load_scorer("tests.test_run_eval:polite")
+    name, scorer = load_scorer("tests.evals.runner.test_run:polite")
     assert name == "polite"
     path = _dataset(tmp_path, [{"id": "a", "input": 1}])
     run_id = run_eval(path, lambda q: "yes please", scorers={name: scorer})

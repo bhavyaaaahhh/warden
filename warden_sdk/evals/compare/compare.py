@@ -4,30 +4,33 @@ Implements docs/research/evaluation-methodology.md. compare_runs() is pure data,
 used by both the CLI report and the viewer so they always agree.
 """
 
-import json
 import random
 from statistics import mean
 from typing import Any
-from uuid import UUID
 
-import httpx
-
-from warden_sdk.evals import stats
-from warden_sdk.tracer import WARDEN_URL
+from warden_sdk.evals.compare import stats
 
 # Bump when the comparison method changes, so cached verdicts are recomputed.
 METHOD_VERSION = "1"
+
 ALPHA = 0.05
+
 # Below this share of scored trials a scorer's verdict is "inconclusive".
 MIN_COVERAGE = 0.9
+
 MIN_PAIRED_CASES = 5
+
 # Warn when more than this share of baseline cases can't be compared.
 MAX_EXCLUDED_SHARE = 0.10
+
 # A metric is worse/better only if the whole 95% CI of its change is beyond this.
 METRIC_CHANGE_PCT = 10.0
+
 # With fewer cases a p95 is close to the max, so only the median is compared.
 P95_MIN_CASES = 50
+
 LOWER_IS_BETTER = {"latency_ms", "cost_usd", "total_tokens", "turns"}
+
 # How each metric is summarised across cases. Anything unlisted gets a mean.
 METRIC_AGGREGATES = {"latency_ms": ("p50", "p95"), "cost_usd": ("total",), "total_tokens": ("total",)}
 
@@ -39,33 +42,9 @@ TRANSITIONS = {
     ("flaky", "pass"): "stabilised",
     ("fail", "flaky"): "improved",
 }
+
 # Report order, worst first.
 TRANSITION_ORDER = ["broke", "degraded", "fixed", "stabilised", "improved"]
-
-
-def fetch_run(client: httpx.Client, ref: str, exclude_run_id: str | None = None) -> dict[str, Any]:
-    """Accept either a run id or a version tag (latest completed run with that tag).
-
-    exclude_run_id skips a run when resolving a tag, so a check doesn't pick the
-    run it just made as its own baseline.
-    """
-    try:
-        run_id = str(UUID(ref))
-    except ValueError:
-        runs = client.get(
-            "/eval_runs", params={"version_tag": ref, "status": "completed", "limit": 2, "verdicts": False}
-        )
-        runs.raise_for_status()
-        matches = [r["run_id"] for r in runs.json() if r["run_id"] != exclude_run_id]
-        if not matches:
-            raise SystemExit(f"no completed eval run with version_tag {ref!r}")
-        run_id = matches[0]
-    res = client.get(f"/eval_runs/{run_id}")
-    if res.status_code == 404:
-        raise SystemExit(f"eval run {run_id} not found")
-    res.raise_for_status()
-    return res.json()
-
 
 def _outcome(score: dict[str, Any]) -> str | None:
     # Runs stored before outcomes existed only have `passed`.
@@ -74,7 +53,6 @@ def _outcome(score: dict[str, Any]) -> str | None:
     if score.get("passed") is not None:
         return "pass" if score["passed"] else "fail"
     return None
-
 
 def _trial_view(result: dict[str, Any]) -> tuple[dict[str, tuple[str, str | None]], dict[str, float], dict[str, str]]:
     """One trial's checks collapsed to one outcome per scorer, plus its metric values.
@@ -108,7 +86,6 @@ def _trial_view(result: dict[str, Any]) -> tuple[dict[str, tuple[str, str | None
             checks[name] = ("pass", None)
     return checks, metrics, versions
 
-
 def _cases(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
     cases: dict[str, dict[str, Any]] = {}
     for r in sorted(run["results"], key=lambda r: r.get("trial") or 0):
@@ -119,7 +96,6 @@ def _cases(run: dict[str, Any]) -> dict[str, dict[str, Any]]:
         checks, metrics, versions = _trial_view(r)
         case["trials"].append({"checks": checks, "metrics": metrics, "versions": versions, "result": r})
     return cases
-
 
 def _tally(case: dict[str, Any], scorer: str) -> dict[str, Any] | None:
     """Passes, valid trials and unscored trials of one scorer on one case."""
@@ -134,21 +110,17 @@ def _tally(case: dict[str, Any], scorer: str) -> dict[str, Any] | None:
         "reason": next((why for o, why in outcomes if o == "fail"), None),
     }
 
-
 def _state(t: dict[str, Any]) -> str:
     return "pass" if t["c"] == t["n"] else "fail" if t["c"] == 0 else "flaky"
-
 
 def _coverage(tallies: list[dict[str, Any]]) -> float | None:
     attempted = sum(t["n"] + t["unscored"] + t["infra"] for t in tallies)
     return sum(t["n"] for t in tallies) / attempted if attempted else None
 
-
 def _pass_k(tallies: list[dict[str, Any]], k: int) -> float | None:
     # Only cases with all k trials valid; fewer trials would inflate pass^k.
     full = [t for t in tallies if t["n"] == k]
     return mean(stats.pass_hat_k(t["n"], t["c"], k) for t in full) if full and k > 1 else None
-
 
 def _compare_check(
     scorer: str, ids: list[str], ca: dict, cb: dict, seed: str, intervals: bool = True
@@ -202,7 +174,6 @@ def _compare_check(
     }
     return row, transitions, (list(tallies_a.values()), list(tallies_b.values()))
 
-
 def _verdict(row: dict[str, Any]) -> tuple[str, str | None]:
     if row["incomparable"]:
         return "incomparable", "the scorer's version changed between runs"
@@ -221,14 +192,12 @@ def _verdict(row: dict[str, Any]) -> tuple[str, str | None]:
         return "no detectable change", f"{d} case(s) flipped; at least {needed} flipping the same way are needed"
     return "no detectable change", None
 
-
 def _aggregate(values: list[float], how: str) -> float:
     if how == "total":
         return sum(values)
     if how == "mean":
         return mean(values)
     return stats.percentile(values, float(how.removeprefix("p")))
-
 
 def _compare_metric(scorer: str, ids: list[str], ca: dict, cb: dict, seed: str) -> list[dict[str, Any]]:
     def case_mean(case: dict) -> float | None:
@@ -270,11 +239,9 @@ def _compare_metric(scorer: str, ids: list[str], ca: dict, cb: dict, seed: str) 
         })
     return rows
 
-
 def _summary(run: dict[str, Any]) -> dict[str, Any]:
     keys = ("run_id", "version_tag", "status", "dataset_name", "agent", "started_at", "trials")
     return {k: run.get(k) for k in keys}
-
 
 def compare_runs(a: dict[str, Any], b: dict[str, Any], intervals: bool = True) -> dict[str, Any]:
     """Compare candidate run B against baseline run A. Pure data, no I/O.
@@ -375,111 +342,3 @@ def compare_runs(a: dict[str, Any], b: dict[str, Any], intervals: bool = True) -
         "verdict": verdict,
         "exit_code": exit_code,
     }
-
-
-def _short(value: Any, width: int = 110) -> str:
-    text = value if isinstance(value, str) else json.dumps(value, default=str)
-    return text if len(text) <= width else text[: width - 1] + "…"
-
-
-def _label(run: dict[str, Any]) -> str:
-    return f"{run['version_tag'] or '(untagged)'} (run {str(run['run_id'])[:8]})"
-
-
-def _fmt_num(value: float) -> str:
-    if abs(value) >= 100:
-        return f"{value:,.0f}"
-    if abs(value) >= 1 or value == 0:
-        return f"{value:.2f}"
-    return f"{value:.6f}"
-
-
-def _fmt_rate(value: float | None) -> str:
-    return "-" if value is None else f"{value:.0%}"
-
-
-def _fmt_ci(ci: list[float] | None, pct: bool = False) -> str:
-    if not ci:
-        return ""
-    if pct:
-        return f"[{ci[0]:+.0f}%, {ci[1]:+.0f}%]"
-    return f"[{ci[0] * 100:+.0f}, {ci[1] * 100:+.0f}]"
-
-
-VERDICT_MARKS = {"regression": "✗", "improvement": "✓", "inconclusive": "?", "incomparable": "?"}
-
-
-def print_report(cmp: dict[str, Any]) -> int:
-    """Print a compare_runs() result as a terminal report. Returns the exit code."""
-    b, c = cmp["baseline"], cmp["candidate"]
-    print(f"warden diff  {_label(b)}  →  {_label(c)}")
-    print(
-        f"dataset {c['dataset_name']}, {cmp['items_compared']} items compared, "
-        f"{b.get('trials') or 1} vs {c.get('trials') or 1} trials per item"
-    )
-    for warning in cmp["warnings"]:
-        print(f"  ⚠ {warning}")
-
-    print(f"\n  {'check':<20}{'baseline':>10}{'candidate':>11}{'change (95% CI, pts)':>26}{'p':>8}  verdict")
-    for r in cmp["checks"]:
-        delta = "" if r["delta"] is None else f"{r['delta'] * 100:+.0f} {_fmt_ci(r['ci'])}"
-        mark = VERDICT_MARKS.get(r["verdict"], " ")
-        print(
-            f"  {r['scorer']:<20}{_fmt_rate(r['baseline_rate']):>10}{_fmt_rate(r['candidate_rate']):>11}"
-            f"{delta:>26}{r['p_adjusted']:>8.3f}  {mark} {r['verdict']}"
-        )
-        if r["note"]:
-            print(f"  {'':<20}{r['note']}")
-        pk = r["pass_k"]
-        if pk["baseline"] is not None or pk["candidate"] is not None:
-            print(
-                f"  {'':<20}pass^k  {_fmt_rate(pk['baseline'])} (k={pk['k_baseline']})"
-                f" → {_fmt_rate(pk['candidate'])} (k={pk['k_candidate']})"
-            )
-
-    for label in TRANSITION_ORDER:
-        cases = [t for t in cmp["transitions"] if t["label"] == label]
-        if not cases:
-            continue
-        print(f"\n{label.upper()} ({len(cases)})")
-        for t in cases:
-            moved = ", ".join(
-                f"{name} {s['baseline']} → {s['candidate']}" for name, s in t["scorers"].items() if s["label"] == label
-            )
-            print(f"  {t['item_id']}  {moved}")
-            if label in ("broke", "degraded"):
-                print(f"      input      {_short(t['input'])}")
-                print(f"      candidate  {_short(t['candidate_output'])}")
-                for name, s in t["scorers"].items():
-                    if s["reason"]:
-                        print(f"      {name}: {s['reason']}")
-
-    if cmp["metrics"]:
-        print(f"\n  {'metric':<20}{'baseline':>12}{'candidate':>12}{'change (95% CI)':>24}  verdict")
-    for m in cmp["metrics"]:
-        label = f"{m['scorer']} {m['aggregate']}"
-        change = f"{m['change_pct']:+.0f}% {_fmt_ci(m['ci'], pct=True)}"
-        mark = " ▲" if m["flagged"] else ""
-        print(
-            f"  {label:<20}{_fmt_num(m['baseline']):>12}{_fmt_num(m['candidate']):>12}{change:>24}"
-            f"  {m['verdict']}{mark}"
-        )
-
-    regressed = [r["scorer"] for r in cmp["checks"] if r["verdict"] == "regression"]
-    undecided = [r["scorer"] for r in cmp["checks"] if r["verdict"] in ("inconclusive", "incomparable")]
-    if cmp["verdict"] == "regression":
-        print(f"\n✗ regression: {', '.join(regressed)}")
-    elif cmp["verdict"] == "undecided":
-        print(f"\n? could not decide: {', '.join(undecided) or 'a run did not complete'}")
-    else:
-        broke = sum(t["label"] == "broke" for t in cmp["transitions"])
-        if broke:
-            print(f"\n✓ no regression detected, though {broke} case(s) broke: too few to tell from noise")
-        else:
-            print("\n✓ no regression detected")
-    return cmp["exit_code"]
-
-
-def run_diff(baseline: str, candidate: str) -> int:
-    with httpx.Client(base_url=WARDEN_URL, timeout=10.0) as client:
-        return print_report(compare_runs(fetch_run(client, baseline), fetch_run(client, candidate)))

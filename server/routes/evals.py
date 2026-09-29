@@ -7,7 +7,7 @@ from psycopg.types.json import Jsonb
 
 from server.db import jsonb, pool
 from server.schemas import EvalResultIn, EvalRunIn, EvalRunStatus, EvalRunUpdate
-from warden_sdk.evals.diff import METHOD_VERSION, compare_runs
+from warden_sdk.evals.compare import METHOD_VERSION, compare_runs
 
 router = APIRouter(prefix="/eval_runs", tags=["evals"])
 

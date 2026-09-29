@@ -2,8 +2,11 @@ import json
 
 import pytest
 
-from warden_sdk.evals.runner import InfraError, _agent_call, _run_trial, case_hash, load_dataset
+from warden_sdk.evals.dataset import case_hash, load_dataset
+from warden_sdk.evals.runner.harness import InfraError, _agent_call
+from warden_sdk.evals.runner.run import _run_trial
 from warden_sdk.evals.scorers import SCORERS, Case, Score, match_tools
+
 
 def _trial(item, agent, scorers, trial=0):
     return _run_trial("run", item, _agent_call(agent), scorers, trial)

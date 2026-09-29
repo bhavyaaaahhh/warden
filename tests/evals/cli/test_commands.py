@@ -1,4 +1,4 @@
-from warden_sdk.evals.commands import _flaky_items
+from warden_sdk.evals.cli.commands import _flaky_items
 
 
 def _score(outcome, criterion=""):

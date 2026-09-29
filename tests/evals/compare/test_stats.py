@@ -2,7 +2,7 @@ import random
 
 import pytest
 
-from warden_sdk.evals import stats
+from warden_sdk.evals.compare import stats
 
 
 def test_mcnemar_exact_matches_hand_computed_values():

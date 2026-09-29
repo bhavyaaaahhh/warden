@@ -79,3 +79,4 @@ class EvalResultIn(BaseModel):
     transcript: list[dict[str, Any]] | None = None
     turns: list[dict[str, Any]] | None = None
     scores: list[ScoreIn] = Field(default_factory=list)
+

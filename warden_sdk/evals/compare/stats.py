@@ -121,3 +121,18 @@ def min_discordant_for_significance(alpha: float = 0.05) -> int:
 def percentile(values: Sequence[float], pct: float) -> float:
     ordered = sorted(values)
     return ordered[max(0, math.ceil(pct / 100 * len(ordered)) - 1)]
+
+
+def cohens_kappa(pairs: Sequence[tuple[str, str]]) -> float | None:
+    """Agreement between two raters beyond chance, from (rater_a, rater_b) label pairs."""
+    n = len(pairs)
+    if n == 0:
+        return None
+    labels = sorted({x for pair in pairs for x in pair})
+    observed = sum(a == b for a, b in pairs) / n
+    expected = sum(
+        (sum(a == lab for a, _ in pairs) / n) * (sum(b == lab for _, b in pairs) / n) for lab in labels
+    )
+    if expected == 1:
+        return 1.0 if observed == 1 else 0.0  # everyone gave the same single label
+    return (observed - expected) / (1 - expected)
