@@ -7,7 +7,7 @@ from psycopg.types.json import Jsonb
 
 from server.db import jsonb, pool
 from server.schemas import EvalResultIn, EvalRunIn, EvalRunStatus, EvalRunUpdate
-from warden_sdk.evals.diff import compare_runs
+from warden_sdk.evals.diff import METHOD_VERSION, compare_runs
 
 router = APIRouter(prefix="/eval_runs", tags=["evals"])
 
@@ -25,8 +25,8 @@ def create_eval_run(run: EvalRunIn):
         conn.execute(
             """
             INSERT INTO eval_runs
-                (run_id, dataset_name, dataset_hash, agent, version_tag, metadata)
-            VALUES (%s, %s, %s, %s, %s, %s)
+                (run_id, dataset_name, dataset_hash, agent, version_tag, trials, metadata)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             """,
             (
                 run.run_id,
@@ -34,6 +34,7 @@ def create_eval_run(run: EvalRunIn):
                 run.dataset_hash,
                 run.agent,
                 run.version_tag,
+                run.trials,
                 Jsonb(run.metadata),
             ),
         )
@@ -66,27 +67,38 @@ def create_eval_result(run_id: UUID, result: EvalResultIn):
             cur.execute(
                 """
                 INSERT INTO eval_results
-                    (result_id, run_id, item_id, trace_id, input, expected, output, error)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    (result_id, run_id, item_id, trial, case_hash, termination, trace_id,
+                     input, expected, output, error, transcript, turns)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     result.result_id,
                     run_id,
                     result.item_id,
+                    result.trial,
+                    result.case_hash,
+                    result.termination,
                     result.trace_id,
                     jsonb(result.input),
                     jsonb(result.expected),
                     jsonb(result.output),
                     result.error,
+                    jsonb(result.transcript),
+                    jsonb(result.turns),
                 ),
             )
             if result.scores:
                 cur.executemany(
                     """
-                    INSERT INTO scores (result_id, scorer, value, passed, reason)
-                    VALUES (%s, %s, %s, %s, %s)
+                    INSERT INTO scores
+                        (result_id, scorer, criterion, value, passed, outcome, reason, scorer_version)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
                     """,
-                    [(result.result_id, s.scorer, s.value, s.passed, s.reason) for s in result.scores],
+                    [
+                        (result.result_id, s.scorer, s.criterion, s.value, s.passed, s.outcome, s.reason,
+                         s.scorer_version)
+                        for s in result.scores
+                    ],
                 )
     return {"result_id": result.result_id}
 
@@ -133,13 +145,14 @@ def list_eval_runs(
     agent: str | None = None,
     baseline: bool | None = None,
     limit: int = 50,
+    verdicts: bool = True,
 ):
     with pool.connection() as conn:
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
                 SELECT r.*,
-                    (SELECT count(*) FROM eval_results res WHERE res.run_id = r.run_id) AS item_count,
+                    (SELECT count(DISTINCT res.item_id) FROM eval_results res WHERE res.run_id = r.run_id) AS item_count,
                     (SELECT coalesce(jsonb_object_agg(scorer, jsonb_build_object(
                                 'passed', passed, 'total', total)), '{{}}')
                      FROM (SELECT s.scorer,
@@ -148,16 +161,7 @@ def list_eval_runs(
                            FROM scores s JOIN eval_results res USING (result_id)
                            WHERE res.run_id = r.run_id AND s.passed IS NOT NULL
                            GROUP BY s.scorer) x) AS checks,
-                    bl.run_id AS baseline_run_id,
-                    -- Same rule as compare_runs: passed in baseline, failed here.
-                    CASE WHEN bl.run_id IS NOT NULL THEN
-                        (SELECT count(DISTINCT cr.item_id)
-                         FROM eval_results cr
-                         JOIN scores cs ON cs.result_id = cr.result_id
-                         JOIN eval_results br ON br.run_id = bl.run_id AND br.item_id = cr.item_id
-                         JOIN scores bs ON bs.result_id = br.result_id AND bs.scorer = cs.scorer
-                         WHERE cr.run_id = r.run_id AND bs.passed AND NOT cs.passed)
-                    END AS regressions_vs_baseline
+                    bl.run_id AS baseline_run_id
                 FROM eval_runs r
                 LEFT JOIN LATERAL ({BASELINE_FOR_RUN}) bl ON true
                 WHERE (%(version_tag)s::text IS NULL OR r.version_tag = %(version_tag)s)
@@ -177,7 +181,57 @@ def list_eval_runs(
                     "limit": min(limit, 500),
                 },
             )
-            return cur.fetchall()
+            runs = cur.fetchall()
+    for r in runs:
+        r["vs_baseline"] = None
+    if verdicts:
+        _add_verdicts(runs)
+    return runs
+
+
+def _add_verdicts(runs: list[dict]) -> None:
+    """Attach each run's verdict against its baseline.
+
+    The verdict comes from compare_runs, not SQL, so the list can't disagree
+    with `check`. Computing it is slow, so it's cached per (baseline, candidate).
+    """
+    pending = [r for r in runs if r["baseline_run_id"] and not r["is_baseline"] and r["status"] == "completed"]
+    if not pending:
+        return
+    with pool.connection() as conn:
+        with conn.cursor(row_factory=dict_row) as cur:
+            cur.execute(
+                """
+                SELECT baseline_run_id, candidate_run_id, verdict, broke FROM eval_comparisons
+                WHERE method = %s AND candidate_run_id = ANY(%s)
+                """,
+                (METHOD_VERSION, [r["run_id"] for r in pending]),
+            )
+            cached = {(c["baseline_run_id"], c["candidate_run_id"]): c for c in cur.fetchall()}
+    fetched: dict = {}
+
+    def load(run_id: UUID) -> dict:
+        if run_id not in fetched:
+            fetched[run_id] = jsonable_encoder(get_eval_run(run_id))
+        return fetched[run_id]
+
+    for r in pending:
+        hit = cached.get((r["baseline_run_id"], r["run_id"]))
+        if hit is None:
+            baseline = load(r["baseline_run_id"])
+            if baseline["status"] != "completed":
+                continue
+            cmp = compare_runs(baseline, load(r["run_id"]), intervals=False)
+            hit = {"verdict": cmp["verdict"], "broke": sum(t["label"] == "broke" for t in cmp["transitions"])}
+            with pool.connection() as conn:
+                conn.execute(
+                    """
+                    INSERT INTO eval_comparisons (baseline_run_id, candidate_run_id, method, verdict, broke)
+                    VALUES (%s, %s, %s, %s, %s) ON CONFLICT DO NOTHING
+                    """,
+                    (r["baseline_run_id"], r["run_id"], METHOD_VERSION, hit["verdict"], hit["broke"]),
+                )
+        r["vs_baseline"] = {"verdict": hit["verdict"], "broke": hit["broke"]}
 
 
 @router.get("/compare")
@@ -204,16 +258,17 @@ def get_eval_run(run_id: UUID):
             if run is None:
                 raise HTTPException(status_code=404, detail="eval run not found")
             cur.execute(
-                "SELECT * FROM eval_results WHERE run_id = %s ORDER BY created_at",
+                "SELECT * FROM eval_results WHERE run_id = %s ORDER BY created_at, trial",
                 (run_id,),
             )
             results = cur.fetchall()
             cur.execute(
                 """
-                SELECT s.result_id, s.scorer, s.value, s.passed, s.reason
+                SELECT s.result_id, s.scorer, s.criterion, s.value, s.passed, s.outcome, s.reason,
+                       s.scorer_version
                 FROM scores s JOIN eval_results r USING (result_id)
                 WHERE r.run_id = %s
-                ORDER BY s.scorer
+                ORDER BY s.scorer, s.criterion
                 """,
                 (run_id,),
             )

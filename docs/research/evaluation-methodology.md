@@ -77,7 +77,7 @@ Let `d_i = p_i(candidate) − p_i(baseline)` over the paired cases, and let `Δ 
 | `incomparable` | judge version changed |
 
 - **α = 0.05** [convention].
-- **Multiple scorers**: p-values across the scorers of one comparison are adjusted with **Benjamini–Hochberg** at q = 0.05 [paper: Benjamini & Hochberg 1995]. The unadjusted p is shown too.
+- **Multiple scorers**: p-values across the scorers of one comparison are adjusted with **Benjamini–Hochberg** at q = 0.05 [paper: Benjamini & Hochberg 1995], counting only the scorers whose smallest attainable p-value (2 / 2^m for m cases that changed) is below α [paper: Tarone 1990, *Biometrics* 46:515]. A scorer where nothing changed can't be significant, and including it only dilutes the others. (Found in the first end-to-end check: 6 of 6 refund cases broke in every trial, raw p = 0.031, but BH over a second scorer with no changes pushed it to 0.062.)
 - **No effect-size floor by default.** A floor such as "ignore |Δ| < 2 points" is a product decision the user sets per suite [convention].
 
 **What small suites can detect.** With k = 1, the smallest possible two-sided exact McNemar p is `2 × 0.5^(b+c)`. So it takes at least **6 discordant cases, all in the same direction**, to reach p < 0.05 (p = 0.031); 5 gives p = 0.0625. The output states this, so a 20-case suite with one flip is shown as "no detectable change", not as a regression.
@@ -90,8 +90,9 @@ Every paired case gets a transition label, independent of the suite-level test, 
 |---|---|
 | stable pass → stable fail | **broke** |
 | stable fail → stable pass | **fixed** |
-| stable pass → flaky | degraded |
+| stable pass → flaky, or flaky → stable fail | degraded |
 | flaky → stable pass | stabilised |
+| stable fail → flaky | improved |
 | flaky → flaky, or unchanged | unchanged |
 
 "Broke" and "fixed" are listed first. With k ≥ 3, **broke** is strong evidence for that case even when the suite-level test isn't significant.

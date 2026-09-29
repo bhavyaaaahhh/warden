@@ -26,9 +26,10 @@ def run_check(
     version_tag: str | None = None,
     scorers: dict[str, Scorer] | None = None,
     baseline_ref: str | None = None,
+    trials: int = 3,
 ) -> int:
     """Run the dataset, then diff against the baseline. Returns the diff's exit code."""
-    run_id = run_eval(dataset_path, agent_target, version_tag=version_tag, scorers=scorers)
+    run_id = run_eval(dataset_path, agent_target, version_tag=version_tag, scorers=scorers, trials=trials)
     print()
     with _client() as client:
         candidate = fetch_run(client, run_id)
@@ -44,6 +45,50 @@ def run_check(
             baseline_ref = candidate["baseline_run_id"]
         baseline = fetch_run(client, baseline_ref, exclude_run_id=run_id)
         return print_report(compare_runs(baseline, candidate))
+
+
+def run_calibrate(
+    dataset_path: Path,
+    agent_target: str,
+    scorers: dict[str, Scorer] | None = None,
+    trials: int = 3,
+) -> int:
+    """Run the same agent twice and compare the runs (an A/A test).
+
+    Nothing changed between the runs, so any regression reported is noise: it
+    shows how much the suite's results move on their own.
+    """
+    print("A/A calibration: running the same agent twice\n")
+    first = run_eval(dataset_path, agent_target, scorers=scorers, trials=trials)
+    print()
+    second = run_eval(dataset_path, agent_target, scorers=scorers, trials=trials)
+    print()
+    with _client() as client:
+        runs = [fetch_run(client, first), fetch_run(client, second)]
+    cmp = compare_runs(*runs)
+    print_report(cmp)
+
+    # Items that moved between the runs, or whose trials disagreed within a run.
+    moved = {t["item_id"] for t in cmp["transitions"]} | _flaky_items(runs[0]) | _flaky_items(runs[1])
+    print(f"\ncalibration: {len(moved)} of {cmp['items_compared']} items changed across identical runs")
+    if cmp["verdict"] == "regression":
+        print("✗ an identical rerun was reported as a regression: add trials or cases before trusting checks")
+        return 1
+    if cmp["verdict"] == "undecided":
+        print("? could not decide: too little was scored to measure the noise")
+        return 2
+    print("✓ identical reruns were not reported as regressions")
+    return 0
+
+
+def _flaky_items(run: dict[str, Any]) -> set[str]:
+    """Items where the same check passed in some trials and failed in others."""
+    seen: dict[tuple[str, str, str], set[str]] = {}
+    for r in run["results"]:
+        for s in r["scores"]:
+            if s["outcome"] in ("pass", "fail"):
+                seen.setdefault((r["item_id"], s["scorer"], s["criterion"]), set()).add(s["outcome"])
+    return {item for (item, _, _), outcomes in seen.items() if len(outcomes) > 1}
 
 
 def set_baseline(ref: str) -> int:
@@ -72,18 +117,21 @@ def list_runs(dataset: str | None = None, limit: int = 20) -> int:
     if not runs:
         print("no eval runs yet")
         return 0
-    print(f"  {'run':<10}{'version':<16}{'dataset':<14}{'status':<11}{'vs baseline':<18}checks")
+    print(f"  {'run':<10}{'version':<16}{'dataset':<14}{'status':<11}{'vs baseline':<24}checks")
     for r in runs:
+        vs = r["vs_baseline"]
         if r["is_baseline"]:
             verdict = "★ baseline"
-        elif r["regressions_vs_baseline"] is None:
+        elif vs is None:
             verdict = "-"
-        elif r["regressions_vs_baseline"]:
-            verdict = f"✗ {r['regressions_vs_baseline']} regressed"
+        elif vs["verdict"] == "regression":
+            verdict = f"✗ regression ({vs['broke']} broke)"
+        elif vs["verdict"] == "undecided":
+            verdict = "? undecided"
         else:
             verdict = "✓ ok"
         print(
             f"  {r['run_id'][:8]:<10}{(r['version_tag'] or '(untagged)')[:15]:<16}"
-            f"{r['dataset_name'][:13]:<14}{r['status']:<11}{verdict:<18}{_checks_summary(r['checks'])}"
+            f"{r['dataset_name'][:13]:<14}{r['status']:<11}{verdict:<24}{_checks_summary(r['checks'])}"
         )
     return 0

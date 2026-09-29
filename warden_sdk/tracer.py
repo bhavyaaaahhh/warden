@@ -39,6 +39,7 @@ def _jsonable(value: Any) -> Any:
 class _EvalItem:
     run_id: str
     item_id: str
+    trial: int = 0
     traces: list["Trace"] = field(default_factory=list)
 
 
@@ -48,8 +49,8 @@ _current_eval_item: ContextVar[_EvalItem | None] = ContextVar("warden_eval_item"
 
 
 @contextmanager
-def _eval_item(run_id: str, item_id: str) -> Iterator[_EvalItem]:
-    item = _EvalItem(run_id, item_id)
+def _eval_item(run_id: str, item_id: str, trial: int = 0) -> Iterator[_EvalItem]:
+    item = _EvalItem(run_id, item_id, trial)
     token = _current_eval_item.set(item)
     try:
         yield item
@@ -145,6 +146,7 @@ class Trace:
                 **self.metadata,
                 "eval_run_id": eval_item.run_id,
                 "eval_item_id": eval_item.item_id,
+                "eval_trial": eval_item.trial,
             }
             eval_item.traces.append(self)
         return self
