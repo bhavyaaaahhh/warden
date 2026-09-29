@@ -1,0 +1,203 @@
+# Sources
+
+## Ecosystem map
+
+Accessed 2026-09-29. Repo identity data came from the GitHub REST API `repos/<owner>/<repo>`. No commit SHAs yet: the breadth pass read no code.
+
+### GitHub repositories
+- https://github.com/openai/evals
+- https://github.com/openai/simple-evals
+- https://github.com/confident-ai/deepeval
+- https://github.com/vibrantlabsai/ragas
+- https://github.com/promptfoo/promptfoo
+- https://github.com/langchain-ai/langsmith-sdk
+- https://github.com/langchain-ai/openevals
+- https://github.com/langchain-ai/agentevals
+- https://github.com/braintrustdata/autoevals
+- https://github.com/braintrustdata/braintrust-sdk-python
+- https://github.com/braintrustdata/braintrust-sdk-javascript
+- https://github.com/Arize-ai/phoenix
+- https://github.com/truera/trulens
+- https://github.com/UKGovernmentBEIS/inspect_ai
+- https://github.com/EleutherAI/lm-evaluation-harness
+- https://github.com/huggingface/lighteval
+- https://github.com/stanford-crfm/helm
+- https://github.com/Giskard-AI/giskard-oss
+- https://github.com/langfuse/langfuse
+- https://github.com/mlflow/mlflow
+- https://github.com/wandb/weave
+- https://github.com/comet-ml/opik
+- https://github.com/google/adk-python
+- https://github.com/googleapis/python-aiplatform
+- https://github.com/Azure/azure-sdk-for-python
+- https://github.com/evidentlyai/evidently
+- https://github.com/arthur-ai/arthur-engine
+- https://github.com/guardrails-ai/guardrails
+- https://github.com/pydantic/pydantic-ai
+- https://github.com/strands-agents/evals
+- https://github.com/mastra-ai/mastra
+- https://github.com/microsoft/promptflow
+- https://github.com/harbor-framework/harbor
+- https://github.com/langwatch/langwatch
+- https://github.com/langwatch/scenario
+- https://github.com/Agenta-AI/agenta
+- https://github.com/latitude-dev/latitude-llm
+- https://github.com/lmnr-ai/lmnr
+- https://github.com/openlit/openlit
+- https://github.com/rhesis-ai/rhesis
+- https://github.com/rungalileo/galileo-python
+- https://github.com/maximhq/maxim-py
+- https://github.com/future-agi/agent-learning-kit
+- https://github.com/future-agi/simulate-sdk (archived)
+- https://github.com/scorecard-ai/scorecard-python
+- https://github.com/plurai-ai/intellagent
+- https://github.com/arklexai/arksim
+- https://github.com/awslabs/agent-evaluation
+- https://github.com/Chatbot-TRACER/TRACER
+- https://github.com/egma-ai/egma
+- https://github.com/voicetestdev/voicetest
+- https://github.com/sotopia-lab/sotopia
+- https://github.com/facebookresearch/meta-agents-research-environments
+- https://github.com/microsoft/PyRIT
+- https://github.com/Azure/PyRIT (archived)
+- https://github.com/NVIDIA/garak
+- https://github.com/traceloop/openllmetry
+- https://github.com/lm-sys/FastChat
+- https://github.com/mtbench101/mt-bench-101
+- https://github.com/microsoft/lost_in_conversation
+- https://github.com/xingyaoww/mint-bench
+- https://github.com/microsoft/ToolTalk
+- https://github.com/sierra-research/tau-bench
+- https://github.com/sierra-research/tau2-bench
+- https://github.com/ShishirPatil/gorilla/tree/main/berkeley-function-call-leaderboard
+- https://github.com/apple-aiml-research/ToolSandbox
+- https://github.com/StonyBrookNLP/appworld
+- https://github.com/THUDM/AgentBench
+- https://github.com/web-arena-x/webarena
+- https://github.com/ServiceNow/BrowserGym
+- https://github.com/xlang-ai/OSWorld
+- https://github.com/SWE-bench/SWE-bench
+- https://github.com/harbor-framework/terminal-bench-1
+- https://github.com/hkust-nlp/Toolathlon
+- https://github.com/OpenBMB/ToolBench
+- https://github.com/lmarena/arena-hard-auto
+- https://github.com/tatsu-lab/alpaca_eval
+- https://github.com/princeton-pli/hal-harness (archived)
+- https://github.com/McGill-NLP/agent-reward-bench
+- https://github.com/prometheus-eval/prometheus-eval
+- https://github.com/nlpyang/geval
+- https://github.com/metauto-ai/agent-as-a-judge
+- https://github.com/alphadl/AdaRubrics
+- https://github.com/scaleapi/mrt
+- https://github.com/kolenaIO/kolena (unverified candidate)
+- https://github.com/Raff-dev/goose (unverified candidate)
+
+### Official documentation
+- https://deepeval.com/guides/guides-multi-turn-simulation
+- https://deepeval.com/guides/guides-multi-turn-evaluation
+- https://docs.confident-ai.com/
+- https://docs.ragas.io/en/stable/concepts/metrics/available_metrics/agents/
+- https://www.promptfoo.dev/docs/providers/simulated-user/
+- https://www.promptfoo.dev/docs/configuration/chat/
+- https://docs.langchain.com/langsmith/multi-turn-simulation
+- https://raw.githubusercontent.com/langchain-ai/openevals/main/README.md
+- https://raw.githubusercontent.com/langchain-ai/agentevals/main/README.md
+- https://inspect.aisi.org.uk/agents.html
+- https://inspect.aisi.org.uk/eval-logs.html
+- https://www.braintrust.dev/docs/guides/evals
+- https://arize.com/docs/phoenix/evaluation/llm-evals
+- https://www.trulens.org/
+- https://docs.giskard.ai/
+- https://raw.githubusercontent.com/Giskard-AI/giskard-oss/main/README.md
+- https://langfuse.com/docs/evaluation/overview
+- https://mlflow.org/docs/latest/genai/eval-monitor/
+- https://mlflow.org/blog/multiturn-evaluation (official MLflow project blog)
+- https://weave-docs.wandb.ai/guides/core-types/evaluations
+- https://www.comet.com/docs/opik/evaluation/evaluate_threads
+- https://www.comet.com/docs/opik/evaluation/concepts
+- https://adk.dev/evaluate/user-sim/
+- https://cloud.google.com/vertex-ai/generative-ai/docs/models/evaluation-overview
+- https://colab.research.google.com/github/GoogleCloudPlatform/generative-ai/blob/main/gemini/evaluation/multi_turn_agent_evaluation_with_user_simulation_metric_registration_auto_loss_analysis.ipynb
+- https://learn.microsoft.com/en-us/azure/ai-foundry/how-to/develop/agent-evaluate-sdk
+- https://docs.patronus.ai/ (HTTP 401 at access time)
+- https://docs.galileo.ai/
+- https://www.getmaxim.ai/docs/
+- https://docs.futureagi.com/
+- https://docs.evidentlyai.com/
+- https://docs.scorecard.io/
+- https://docs.coval.dev/
+- https://docs.cekura.ai/
+- https://docs.getbluejay.ai/
+- https://scenario.langwatch.ai/
+- https://ai.pydantic.dev/evals/
+- https://mastra.ai/docs/evals/overview
+- https://www.guardrailsai.com/docs
+- https://raw.githubusercontent.com/strands-agents/evals/main/README.md
+- https://raw.githubusercontent.com/plurai-ai/intellagent/main/README.md
+- https://raw.githubusercontent.com/arklexai/arksim/main/README.md
+- https://raw.githubusercontent.com/awslabs/agent-evaluation/main/README.md
+- https://raw.githubusercontent.com/rhesis-ai/rhesis/main/README.md
+- https://raw.githubusercontent.com/egma-ai/egma/main/README.md
+- https://raw.githubusercontent.com/voicetestdev/voicetest/main/README.md
+- https://raw.githubusercontent.com/Chatbot-TRACER/TRACER/main/README.md
+- https://raw.githubusercontent.com/langwatch/scenario/main/README.md
+- https://raw.githubusercontent.com/UKGovernmentBEIS/inspect_ai/main/README.md
+- https://raw.githubusercontent.com/sierra-research/tau2-bench/main/README.md
+- https://raw.githubusercontent.com/facebookresearch/meta-agents-research-environments/main/README.md
+- https://raw.githubusercontent.com/hkust-nlp/Toolathlon/main/README.md
+- https://gorilla.cs.berkeley.edu/blogs/13_bfcl_v3_multi_turn.html (official BFCL project blog)
+- https://hal.cs.princeton.edu/
+- https://opentelemetry.io/docs/specs/semconv/gen-ai/
+
+### Papers (arXiv)
+- https://arxiv.org/abs/2306.05685 (Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena)
+- https://arxiv.org/abs/2402.14762 (MT-Bench-101)
+- https://arxiv.org/abs/2401.16745 (MT-Eval)
+- https://arxiv.org/abs/2501.17399 (MultiChallenge)
+- https://arxiv.org/abs/2505.06120 (LLMs Get Lost in Multi-Turn Conversation)
+- https://arxiv.org/abs/2309.10691 (MINT)
+- https://arxiv.org/abs/2311.10775 (ToolTalk)
+- https://arxiv.org/abs/2406.12045 (τ-bench, pass^k)
+- https://arxiv.org/abs/2506.07982 (τ²-bench)
+- https://arxiv.org/abs/2408.04682 (ToolSandbox)
+- https://arxiv.org/abs/2407.18901 (AppWorld)
+- https://arxiv.org/abs/2308.03688 (AgentBench)
+- https://arxiv.org/abs/2307.13854 (WebArena)
+- https://arxiv.org/abs/2403.07718 (WorkArena)
+- https://arxiv.org/abs/2404.07972 (OSWorld)
+- https://arxiv.org/abs/2311.12983 (GAIA)
+- https://arxiv.org/abs/2310.06770 (SWE-bench)
+- https://arxiv.org/abs/2508.20453 (MCP-Bench)
+- https://arxiv.org/abs/2505.08775 (HealthBench)
+- https://arxiv.org/abs/2406.11939 (Arena-Hard / BenchBuilder)
+- https://arxiv.org/abs/2404.04475 (Length-Controlled AlpacaEval)
+- https://arxiv.org/abs/2510.11977 (Holistic Agent Leaderboard)
+- https://arxiv.org/abs/2504.08942 (AgentRewardBench)
+- https://arxiv.org/abs/2410.12784 (JudgeBench)
+- https://arxiv.org/abs/2310.11667 (SOTOPIA)
+- https://arxiv.org/abs/2303.16634 (G-Eval)
+- https://arxiv.org/abs/2310.08491 (Prometheus)
+- https://arxiv.org/abs/2405.01535 (Prometheus 2)
+- https://arxiv.org/abs/2305.17926 (LLMs are not Fair Evaluators)
+- https://arxiv.org/abs/2410.02736 (Justice or Prejudice? / CALM)
+- https://arxiv.org/abs/2406.12624 (Judging the Judges)
+- https://arxiv.org/abs/2308.07201 (ChatEval)
+- https://arxiv.org/abs/2411.15594 (A Survey on LLM-as-a-Judge)
+- https://arxiv.org/abs/2410.10934 (Agent-as-a-Judge)
+- https://arxiv.org/abs/2603.21362 (AdaRubric)
+- https://arxiv.org/abs/2507.17746 (Rubrics as Rewards)
+- https://arxiv.org/abs/2411.00640 (Adding Error Bars to Evals)
+- https://arxiv.org/abs/2501.04410 (User Simulation in the Era of Generative AI)
+- https://arxiv.org/abs/2604.24977 (Survey on LLM-based Conversational User Simulation)
+- https://arxiv.org/abs/2402.13374 (Reliable LLM-based User Simulator for TOD)
+- https://arxiv.org/abs/2507.20152 (Goal Alignment in LLM-Based User Simulators)
+- https://arxiv.org/abs/2510.11997 (SAGE)
+- https://arxiv.org/abs/2501.11067 (IntellAgent)
+- https://arxiv.org/abs/2604.21480 (Diversity-Guided User Simulation)
+- https://arxiv.org/abs/2606.11079 (VISTA)
+- https://arxiv.org/abs/2609.12191 (GAUGE)
+- https://arxiv.org/abs/2606.10315 (Catching One in Five)
+- https://arxiv.org/abs/2609.33955 (Reliable LLM-as-a-Judge Measurement Systems for Multi-Turn Business Agents)
+- https://arxiv.org/abs/2606.01815 (CRAB-Bench; unverified candidate)
+- https://arxiv.org/abs/2608.17150 (KnowSim; unverified candidate)
+- https://arxiv.org/abs/2608.26623 (AgentJudgeBench; unverified candidate)
