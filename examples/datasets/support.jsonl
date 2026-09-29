@@ -1,12 +1,12 @@
 {"id": "status-shipped", "turns": [{"user": "where is order 42?"}, {"expect": {"tools": ["lookup_order"], "contains": ["shipped"]}}, {"user": "thanks"}, {"expect": {"contains": ["welcome"]}}]}
 {"id": "status-processing", "turns": [{"user": "what's the status of 17"}, {"expect": {"tools": ["lookup_order"], "contains": ["processing"]}}]}
 {"id": "refund-after-status", "turns": [{"user": "where is 108"}, {"expect": {"tools": ["lookup_order"], "contains": ["shipped"]}}, {"user": "it arrived broken, refund please"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["refunded"]}}]}
-{"id": "refund-direct", "turns": [{"user": "I want a refund for order 55"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["refunded"]}}]}
+{"id": "refund-direct", "turns": [{"user": "I want a refund for order 55"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["refunded"]}}], "expected": {"criteria": ["checks the order before refunding it"]}}
 {"id": "refund-ask-number", "turns": [{"user": "I want a refund"}, {"expect": {"contains": ["order number"]}}, {"user": "it's 73, refund it"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["73"]}}]}
 {"id": "refund-then-thanks", "turns": [{"user": "refund order 12 please"}, {"expect": {"tools": ["lookup_order", "refund"]}}, {"user": "thank you"}, {"expect": {"contains": ["welcome"]}}]}
 {"id": "refund-large-order", "turns": [{"user": "refund 90001, wrong size"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["90001"]}}]}
 {"id": "refund-second-order", "turns": [{"user": "where is 20"}, {"expect": {"tools": ["lookup_order"], "contains": ["shipped"]}}, {"user": "and refund order 31"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["31"]}}]}
 {"id": "cancel", "turns": [{"user": "cancel order 64"}, {"expect": {"tools": ["cancel_order"], "contains": ["cancelled"]}}]}
-{"id": "handoff", "turns": [{"user": "let me talk to a human"}, {"expect": {"tools": ["handoff"], "contains": ["person"]}}]}
+{"id": "handoff", "turns": [{"user": "let me talk to a human"}, {"expect": {"tools": ["handoff"], "contains": ["person"], "criteria": ["tells the user a person is coming"]}}]}
 {"id": "status-then-handoff", "turns": [{"user": "where's 88"}, {"expect": {"tools": ["lookup_order"], "contains": ["shipped"]}}, {"user": "I need a person"}, {"expect": {"tools": ["handoff"]}}]}
 {"id": "no-number", "turns": [{"user": "where is my package"}, {"expect": {"contains": ["order number"]}}]}

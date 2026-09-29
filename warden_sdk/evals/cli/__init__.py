@@ -1,18 +1,24 @@
 """Usage:
+  python -m warden_sdk.evals run DATASET --agent module:function [--trials K] [--version TAG]
   python -m warden_sdk.evals check DATASET --agent module:function [--trials K] [--baseline REF] [--version TAG]
-  python -m warden_sdk.evals run DATASET --agent module:function [--trials K] [--version TAG] [--scorers a,b]
   python -m warden_sdk.evals calibrate DATASET --agent module:function [--trials K]
-
-run, check and calibrate also take --concurrency N (trials run at once, default 4)
-and --scorer module:function (repeatable) to add your own scorers.
   python -m warden_sdk.evals diff BASELINE CANDIDATE
   python -m warden_sdk.evals baseline REF
   python -m warden_sdk.evals runs [--dataset NAME]
+  python -m warden_sdk.evals export-labels REF --scorer judge -o labels.jsonl
+  python -m warden_sdk.evals validate-judge labels.jsonl [--judge module:name]
+
+run, check and calibrate also take:
+  --concurrency N           trials to run at once (default 4)
+  --scorers a,b             a subset of the built-in scorers
+  --scorer module:function  add your own scorer (repeatable)
+  --judge                   add the LLM judge (grades items' "criteria"; needs Anthropic credentials)
 
 REF is a run id or a version tag (the latest completed run with that tag).
 
 Exit codes for check, diff and calibrate: 0 no regression, 1 regression,
 2 could not decide (too little was scored, a scorer changed, or a run failed).
+validate-judge exits 0 if the judge passed validation, 1 if not.
 """
 
 import argparse
@@ -28,9 +34,17 @@ from warden_sdk.evals.cli.commands import (
     run_diff,
     set_baseline,
 )
-from warden_sdk.evals.loading import load_scorer
+from warden_sdk.evals.loading import load_scorer, load_target
+from warden_sdk.evals.models import DEFAULT_MODEL, ClaudeModel
 from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
 from warden_sdk.evals.scorers import SCORERS
+from warden_sdk.evals.scorers.judge import LLMJudge, llm_judge
+from warden_sdk.evals.validation import (
+    export_labels,
+    print_validation,
+    store_validation,
+    validate_judge,
+)
 from warden_sdk.tracer import WARDEN_URL
 
 
@@ -45,6 +59,14 @@ def _add_run_args(p: argparse.ArgumentParser, trials: int, version: bool = True)
                    help="add a custom scorer (repeatable)")
     p.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
                    help=f"trials to run at once (default {DEFAULT_CONCURRENCY})")
+    p.add_argument("--judge", action="store_true", help="add the LLM judge, which grades items' criteria")
+    _add_judge_model_args(p)
+
+
+def _add_judge_model_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--judge-model", default=DEFAULT_MODEL, help=f"model for the LLM judge (default {DEFAULT_MODEL})")
+    p.add_argument("--judge-effort", default="low", choices=["low", "medium", "high", "xhigh", "max"],
+                   help="effort for the LLM judge (default low)")
 
 
 def main() -> int:
@@ -72,6 +94,19 @@ def main() -> int:
     runs.add_argument("--dataset", help="only runs of this dataset")
     runs.add_argument("--limit", type=int, default=20)
 
+    export = sub.add_parser("export-labels", help="write a run's judged criteria to a file for people to label")
+    export.add_argument("ref", help="run id or version tag")
+    export.add_argument("--scorer", default="judge", help="the judge scorer's name (default judge)")
+    export.add_argument("-o", "--out", type=Path, required=True, help="JSONL file to write")
+
+    validate = sub.add_parser("validate-judge", help="check a judge against human labels")
+    validate.add_argument("labels", type=Path, help="labelled JSONL, e.g. from export-labels")
+    validate.add_argument("--judge", dest="judge_target", metavar="MODULE:NAME",
+                          help="a judge built with llm_judge() (default: the built-in judge)")
+    _add_judge_model_args(validate)
+    validate.add_argument("--repeats", type=int, default=3, help="times to judge each row (default 3)")
+    validate.add_argument("--no-store", action="store_true", help="don't save the result to the server")
+
     args = parser.parse_args()
     try:
         return _dispatch(parser, args)
@@ -80,7 +115,7 @@ def main() -> int:
         return 2
 
 
-def _scorers(parser: argparse.ArgumentParser, subset: str | None, custom: list[str]):
+def _scorers(parser: argparse.ArgumentParser, subset: str | None, custom: list[str], judge: LLMJudge | None):
     scorers = dict(SCORERS)
     if subset:
         names = [n.strip() for n in subset.split(",")]
@@ -96,6 +131,10 @@ def _scorers(parser: argparse.ArgumentParser, subset: str | None, custom: list[s
         if name in scorers:
             parser.error(f"--scorer {target}: a scorer named {name!r} already exists")
         scorers[name] = scorer
+    if judge is not None:
+        if judge.name in scorers:
+            parser.error(f"--judge: a scorer named {judge.name!r} already exists")
+        scorers[judge.name] = judge
     return scorers
 
 
@@ -106,12 +145,22 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         return set_baseline(args.ref)
     if args.command == "runs":
         return list_runs(args.dataset, args.limit)
+    if args.command == "export-labels":
+        return export_labels(args.ref, args.scorer, args.out)
+    if args.command == "validate-judge":
+        judge = load_target(args.judge_target, "--judge") if args.judge_target else _judge(args)
+        if not isinstance(judge, LLMJudge):
+            parser.error("--judge must name a judge built with llm_judge()")
+        report = validate_judge(args.labels, judge, repeats=args.repeats)
+        if not args.no_store:
+            store_validation(report)
+        return print_validation(report)
 
     if args.trials < 1:
         parser.error("--trials must be at least 1")
     if args.concurrency < 1:
         parser.error("--concurrency must be at least 1")
-    scorers = _scorers(parser, args.scorers, args.scorer)
+    scorers = _scorers(parser, args.scorers, args.scorer, _judge(args) if args.judge else None)
     common = {"scorers": scorers, "trials": args.trials, "concurrency": args.concurrency}
     if args.command == "calibrate":
         return run_calibrate(args.dataset, args.agent, **common)
@@ -120,3 +169,7 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     run_eval(args.dataset, args.agent, version_tag=args.version, **common)
     return 0
 
+
+
+def _judge(args: argparse.Namespace) -> LLMJudge:
+    return llm_judge(model=ClaudeModel(args.judge_model, args.judge_effort))

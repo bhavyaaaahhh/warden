@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse
 
 from server.db import pool
 from server.routes.evals import router as evals_router
+from server.routes.judges import router as judges_router
 from server.routes.traces import router as traces_router
 
 
@@ -19,6 +20,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="warden", lifespan=lifespan)
 app.include_router(traces_router)
 app.include_router(evals_router)
+app.include_router(judges_router)
 
 
 @app.get("/health")
