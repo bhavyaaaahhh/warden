@@ -2,8 +2,12 @@ import json
 
 import pytest
 
-from warden_sdk.evals.runner import InfraError, _run_trial, case_hash, load_dataset
+from warden_sdk.evals.runner import InfraError, _agent_call, _run_trial, case_hash, load_dataset
 from warden_sdk.evals.scorers import SCORERS, Case, Score, match_tools
+
+def _trial(item, agent, scorers, trial=0):
+    return _run_trial("run", item, _agent_call(agent), scorers, trial)
+
 
 SCRIPT = [
     {"user": "where is my order 42?"},
@@ -31,7 +35,7 @@ def scores_by(result):
 
 def test_scripted_conversation_passes_every_turn():
     item = {"id": "refund", "turns": SCRIPT}
-    result, _ = _run_trial("run", item, support_agent, SCORERS, trial=0)
+    result, _ = _trial(item, support_agent, SCORERS, trial=0)
     assert result["termination"] == "completed"
     assert [t["tool_calls"] for t in result["turns"]] == [["lookup_order"], ["refund"]]
     # The agent sees the whole conversation, tool messages included.
@@ -47,7 +51,7 @@ def test_failing_turn_names_the_turn_and_reason():
     def skips_lookup(messages):
         return "It has shipped."
 
-    result, _ = _run_trial("run", {"id": "x", "turns": SCRIPT}, skips_lookup, SCORERS, trial=0)
+    result, _ = _trial({"id": "x", "turns": SCRIPT}, skips_lookup, SCORERS, trial=0)
     s = scores_by(result)
     # No tool messages and no trace: we can't tell which tools ran, so that turn is unscored, not failed.
     assert s[("turn_expectations", "turn 1")]["outcome"] == "unscored"
@@ -59,7 +63,7 @@ def test_agent_error_stops_the_conversation_and_later_turns_fail():
             raise RuntimeError("payments down")
         return support_agent(messages)
 
-    result, _ = _run_trial("run", {"id": "x", "turns": SCRIPT}, breaks_on_refund, SCORERS, trial=0)
+    result, _ = _trial({"id": "x", "turns": SCRIPT}, breaks_on_refund, SCORERS, trial=0)
     assert result["termination"] == "agent_error"
     s = scores_by(result)
     assert s[("turn_expectations", "turn 2")]["outcome"] == "fail"
@@ -74,7 +78,7 @@ def test_infra_error_is_retried_then_stored_without_scores():
         calls.append(query)
         raise InfraError("429 from provider")
 
-    result, _ = _run_trial("run", {"id": "x", "input": "hi"}, flaky_provider, SCORERS, trial=0)
+    result, _ = _trial({"id": "x", "input": "hi"}, flaky_provider, SCORERS, trial=0)
     assert len(calls) == 3
     assert result["termination"] == "infra_error"
     assert result["scores"] == []
@@ -87,7 +91,7 @@ def test_infra_error_is_retried_then_stored_without_scores():
             raise step
         return step
 
-    result, _ = _run_trial("run", {"id": "x", "input": "hi"}, recovers, SCORERS, trial=0)
+    result, _ = _trial({"id": "x", "input": "hi"}, recovers, SCORERS, trial=0)
     assert result["termination"] == "completed" and result["output"] == "fine"
 
 
@@ -96,7 +100,7 @@ def test_raising_scorer_is_unscored_not_a_crash():
         raise ValueError("bad rubric")
 
     broken.version = "v3"
-    result, _ = _run_trial("run", {"id": "x", "input": "hi"}, lambda q: "hello", {"broken": broken}, trial=0)
+    result, _ = _trial({"id": "x", "input": "hi"}, lambda q: "hello", {"broken": broken}, trial=0)
     [score] = result["scores"]
     assert score["outcome"] == "unscored" and "bad rubric" in score["reason"]
     assert score["scorer_version"] == "v3"
@@ -146,7 +150,7 @@ def test_load_dataset_accepts_turns_and_rejects_bad_items(tmp_path):
 
 def test_unrecorded_tools_do_not_hide_a_failed_reply_check():
     item = {"id": "x", "turns": [{"user": "refund 5"}, {"expect": {"contains": ["refund"], "tools": ["lookup"]}}]}
-    result, _ = _run_trial("run", item, lambda messages: "sorry, no", SCORERS, trial=0)
+    result, _ = _trial(item, lambda messages: "sorry, no", SCORERS, trial=0)
     turn = scores_by(result)[("turn_expectations", "turn 1")]
     assert turn["outcome"] == "fail" and "missing ['refund']" in turn["reason"]
 
