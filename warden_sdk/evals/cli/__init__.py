@@ -5,6 +5,7 @@
   python -m warden_sdk.evals diff BASELINE CANDIDATE
   python -m warden_sdk.evals baseline REF
   python -m warden_sdk.evals runs [--dataset NAME]
+  python -m warden_sdk.evals rescore REF [--scorer module:function] [--judge]
   python -m warden_sdk.evals export-labels REF --scorer judge -o labels.jsonl
   python -m warden_sdk.evals validate-judge labels.jsonl [--judge module:name]
 
@@ -17,6 +18,7 @@ run, check and calibrate also take:
   --simulator module:name   your own simulated user
 
 REF is a run id or a version tag (the latest completed run with that tag).
+check --baseline git compares against the run on the commit your branch forked from.
 
 Exit codes for check, diff and calibrate: 0 no regression, 1 regression,
 2 could not decide (too little was scored, a scorer changed, or a run failed).
@@ -39,6 +41,7 @@ from warden_sdk.evals.cli.commands import (
 from warden_sdk.evals.loading import load_scorer, load_target
 from warden_sdk.evals.models import DEFAULT_MODEL, ClaudeModel
 from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
+from warden_sdk.evals.runner.rescore import rescore
 from warden_sdk.evals.runner.simulator import UserSimulator
 from warden_sdk.evals.scorers import SCORERS
 from warden_sdk.evals.scorers.judge import LLMJudge, llm_judge
@@ -57,19 +60,23 @@ def _add_run_args(p: argparse.ArgumentParser, trials: int, version: bool = True)
     p.add_argument("--trials", type=int, default=trials, help=f"runs of each item (default {trials})")
     if version:
         p.add_argument("--version", help="version tag (defaults to the tag the agent's traces report)")
-    p.add_argument("--scorers", help=f"comma-separated subset of the built-in scorers: {', '.join(SCORERS)}")
-    p.add_argument("--scorer", action="append", default=[], metavar="MODULE:FUNCTION",
-                   help="add a custom scorer (repeatable)")
     p.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
                    help=f"trials to run at once (default {DEFAULT_CONCURRENCY})")
-    p.add_argument("--judge", action="store_true", help="add the LLM judge, which grades items' criteria")
-    _add_judge_model_args(p)
+    _add_scorer_args(p)
     p.add_argument("--simulator", dest="simulator_target", metavar="MODULE:NAME",
                    help="your own simulated user: a UserSimulator, or a model to give the built-in one")
     p.add_argument("--simulator-model", default=DEFAULT_MODEL,
                    help=f"model playing the user in scenario items (default {DEFAULT_MODEL})")
     p.add_argument("--simulator-effort", default="low", choices=["low", "medium", "high", "xhigh", "max"],
                    help="effort for the simulated user (default low)")
+
+
+def _add_scorer_args(p: argparse.ArgumentParser) -> None:
+    p.add_argument("--scorers", help=f"comma-separated subset of the built-in scorers: {', '.join(SCORERS)}")
+    p.add_argument("--scorer", action="append", default=[], metavar="MODULE:FUNCTION",
+                   help="add a custom scorer (repeatable)")
+    p.add_argument("--judge", action="store_true", help="add the LLM judge, which grades items' criteria")
+    _add_judge_model_args(p)
 
 
 def _add_judge_model_args(p: argparse.ArgumentParser) -> None:
@@ -84,7 +91,8 @@ def main() -> int:
 
     check = sub.add_parser("check", help="run a dataset and check it against the baseline")
     _add_run_args(check, trials=3)
-    check.add_argument("--baseline", help="compare against this run id or version tag instead")
+    check.add_argument("--baseline", help="compare against this run id or version tag, or 'git' for the run "
+                                          "where this branch forked from the default branch")
 
     run = sub.add_parser("run", help="run a dataset through an agent and score it")
     _add_run_args(run, trials=1)
@@ -102,6 +110,11 @@ def main() -> int:
     runs = sub.add_parser("runs", help="list recent eval runs")
     runs.add_argument("--dataset", help="only runs of this dataset")
     runs.add_argument("--limit", type=int, default=20)
+
+    rescore = sub.add_parser("rescore", help="score a stored run again, without re-running the agent")
+    rescore.add_argument("ref", help="run id or version tag")
+    rescore.add_argument("--version", help="version tag for the new run (default: the original's)")
+    _add_scorer_args(rescore)
 
     export = sub.add_parser("export-labels", help="write a run's judged criteria to a file for people to label")
     export.add_argument("ref", help="run id or version tag")
@@ -122,6 +135,13 @@ def main() -> int:
     except httpx.ConnectError:
         print(f"warden: cannot reach the server at {WARDEN_URL} (is it running? set WARDEN_URL?)", file=sys.stderr)
         return 2
+    except SystemExit as e:
+        # Commands stop with a message when they can't go on (no such run, no git baseline).
+        # That's "could not decide", exit 2, never "regression".
+        if isinstance(e.code, str):
+            print(f"warden: {e.code}", file=sys.stderr)
+            return 2
+        raise
 
 
 def _scorers(parser: argparse.ArgumentParser, subset: str | None, custom: list[str], judge: LLMJudge | None):
@@ -154,6 +174,10 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         return set_baseline(args.ref)
     if args.command == "runs":
         return list_runs(args.dataset, args.limit)
+    if args.command == "rescore":
+        scorers = _scorers(parser, args.scorers, args.scorer, _judge(args) if args.judge else None)
+        rescore(args.ref, scorers, version_tag=args.version)
+        return 0
     if args.command == "export-labels":
         return export_labels(args.ref, args.scorer, args.out)
     if args.command == "validate-judge":

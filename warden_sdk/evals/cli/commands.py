@@ -7,6 +7,11 @@ import httpx
 from warden_sdk.evals.client import client as _client
 from warden_sdk.evals.client import fetch_run
 from warden_sdk.evals.compare import compare_runs, print_report
+from warden_sdk.evals.gitinfo import (
+    GitBaselineError,
+    baseline_commits,
+    pick_git_baseline,
+)
 from warden_sdk.evals.loading import agent_name
 from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
 from warden_sdk.evals.runner.simulator import UserSimulator
@@ -49,10 +54,37 @@ def run_check(
                 print(f"✓ saved run {run_id[:8]} as the baseline; future checks compare against it")
                 return 0
             baseline_ref = candidate["baseline_run_id"]
+        if baseline_ref == "git":
+            baseline_ref = _git_baseline(client, candidate)
         baseline = fetch_run(client, baseline_ref, exclude_run_id=run_id)
         cmp = compare_runs(baseline, candidate)
         cmp["warnings"] += judge_warnings(client, [baseline, candidate])
         return print_report(cmp)
+
+
+def _git_baseline(client: httpx.Client, candidate: dict[str, Any]) -> str:
+    """The run on the commit this branch forked from, or the nearest one before it."""
+    try:
+        base, ancestors = baseline_commits()
+    except GitBaselineError as e:
+        raise SystemExit(f"--baseline git: {e}") from e
+    res = client.get("/eval_runs", params={
+        "dataset_name": candidate["dataset_name"], "agent": candidate["agent"],
+        "status": "completed", "limit": 500, "verdicts": False,
+    })
+    res.raise_for_status()
+    runs = [r for r in res.json() if r["run_id"] != candidate["run_id"]]
+    picked = pick_git_baseline(runs, ancestors)
+    if picked is None:
+        raise SystemExit(
+            f"--baseline git: no completed run of {candidate['dataset_name']} + {candidate['agent']} on "
+            f"{base[:8]} (where this branch forked) or before it, without uncommitted changes. "
+            f"Check out {base[:8]} and run `check` there first."
+        )
+    commit = picked["metadata"]["git"]["commit"]
+    note = "the merge-base" if commit == base else f"{ancestors.index(commit)} commit(s) before the merge-base"
+    print(f"baseline: run {picked['run_id'][:8]} on {commit[:8]} ({note})")
+    return picked["run_id"]
 
 
 def run_calibrate(

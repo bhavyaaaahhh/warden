@@ -10,6 +10,7 @@ class FakeServer:
     def __init__(self):
         self.runs: dict[str, dict] = {}
         self.results: dict[str, list[dict]] = {}
+        self.traces: dict[str, dict] = {}
 
     def handle(self, request: httpx.Request) -> httpx.Response:
         body = json.loads(request.content) if request.content else None
@@ -24,6 +25,14 @@ class FakeServer:
         if request.method == "PATCH":
             self.runs[path.split("/")[2]].update(body)
             return httpx.Response(200, json={})
+        if request.method == "GET" and path.startswith("/eval_runs/"):
+            run_id = path.split("/")[2]
+            if run_id not in self.runs:
+                return httpx.Response(404, json={"detail": "eval run not found"})
+            return httpx.Response(200, json={**self.runs[run_id], "results": self.results[run_id]})
+        if request.method == "GET" and path.startswith("/traces/"):
+            trace = self.traces.get(path.split("/")[2])
+            return httpx.Response(200, json=trace) if trace else httpx.Response(404, json={"detail": "trace not found"})
         return httpx.Response(404, json={"detail": f"fake server: no route {request.method} {path}"})
 
 
@@ -36,4 +45,5 @@ def fake_server(monkeypatch):
         return real_client(*args, transport=httpx.MockTransport(server.handle), **kwargs)
 
     monkeypatch.setattr("warden_sdk.evals.runner.run.httpx.Client", client)
+    monkeypatch.setattr("warden_sdk.evals.client.httpx.Client", client)
     return server
