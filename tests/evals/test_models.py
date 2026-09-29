@@ -71,3 +71,12 @@ def test_rate_limits_and_server_errors_are_model_errors_but_bad_requests_raise()
     model, _ = _model(lambda r: httpx2.Response(400, json={**error, "error": {"type": "invalid_request_error", "message": "bad"}}))
     with pytest.raises(anthropic.BadRequestError):
         model.json("s", [{"role": "user", "content": "x"}], SCHEMA)
+
+
+def test_missing_credentials_stop_the_run_with_a_clear_message(monkeypatch):
+    for var in ("ANTHROPIC_API_KEY", "ANTHROPIC_AUTH_TOKEN"):
+        monkeypatch.delenv(var, raising=False)
+    client = anthropic.Anthropic(api_key=None, http_client=anthropic.DefaultHttpxClient(
+        transport=httpx2.MockTransport(lambda r: httpx2.Response(500))))
+    with pytest.raises(SystemExit, match="no Anthropic credentials"):
+        ClaudeModel(client=client).json("s", [{"role": "user", "content": "x"}], SCHEMA)

@@ -38,13 +38,21 @@ def _split_turn(label: str) -> tuple[int | None, str]:
     return None, label
 
 
-def export_labels(run_ref: str, scorer: str, out: Path) -> int:
-    """Write one row per judged criterion (first trial of each item) for people to label."""
+def export_labels(run_ref: str, scorer: str, out: Path, per_item: bool = False) -> int:
+    """Write rows for people to label from the first trial of each item.
+
+    One row per criterion `scorer` judged, or with per_item one row per item
+    for a verdict on the whole thing.
+    """
     with httpx.Client(base_url=WARDEN_URL, timeout=10.0) as client:
         run = fetch_run(client, run_ref)
     rows = []
     for r in run["results"]:
-        if (r.get("trial") or 0) != 0:
+        if (r.get("trial") or 0) != 0 or r.get("termination") == "infra_error":
+            continue
+        if per_item:
+            rows.append({"id": r["item_id"], "item_id": r["item_id"], "input": r.get("input"), "transcript": r.get("transcript"),
+                         "output": r.get("output"), "criterion": None, "turn": None, "label": None})
             continue
         for s in r["scores"]:
             if s["scorer"] != scorer or not s.get("criterion"):
@@ -52,6 +60,7 @@ def export_labels(run_ref: str, scorer: str, out: Path) -> int:
             turn, criterion = _split_turn(s["criterion"])
             rows.append({
                 "id": f"{r['item_id']}/{s['criterion']}",
+                "item_id": r["item_id"],
                 "input": r.get("input"),
                 "transcript": r.get("transcript"),
                 "output": r.get("output"),
@@ -60,9 +69,10 @@ def export_labels(run_ref: str, scorer: str, out: Path) -> int:
                 "label": None,
             })
     if not rows:
-        raise SystemExit(f"run {run_ref} has no criteria scored by {scorer!r}")
+        raise SystemExit(f"run {run_ref} has no criteria scored by {scorer!r} (use --per-item to label whole items)")
     out.write_text("".join(json.dumps(row) + "\n" for row in rows))
-    print(f"wrote {len(rows)} rows to {out}; set each \"label\" to \"pass\" or \"fail\", then run validate-judge")
+    then = "rescore the run with --labels" if per_item else "run validate-judge, or rescore the run with --labels"
+    print(f"wrote {len(rows)} rows to {out}; set each \"label\" to \"pass\" or \"fail\", then {then}")
     return 0
 
 

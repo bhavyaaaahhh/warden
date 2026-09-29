@@ -8,6 +8,10 @@
   python -m warden_sdk.evals rescore REF [--scorer module:function] [--judge]
   python -m warden_sdk.evals export-labels REF --scorer judge -o labels.jsonl
   python -m warden_sdk.evals validate-judge labels.jsonl [--judge module:name]
+  python -m warden_sdk.evals rescore REF --labels labels.jsonl     people's labels as a "human" check
+  python -m warden_sdk.evals from-traces [TRACE_ID ...] [--agent-name NAME] [--errors-only] -o dataset.jsonl
+  python -m warden_sdk.evals generate --about "what the agent does" -n 10 -o scenarios.jsonl
+  python -m warden_sdk.evals pairwise BASELINE CANDIDATE [--question "..."]
 
 run, check and calibrate also take:
   --concurrency N           trials to run at once (default 4)
@@ -34,10 +38,13 @@ from pathlib import Path
 import httpx
 
 from warden_sdk.evals.cli.commands import (
+    from_traces,
+    generate,
     list_runs,
     run_calibrate,
     run_check,
     run_diff,
+    run_pairwise,
     set_baseline,
 )
 from warden_sdk.evals.environment import Fault
@@ -47,6 +54,7 @@ from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
 from warden_sdk.evals.runner.rescore import rescore
 from warden_sdk.evals.runner.simulator import UserSimulator
 from warden_sdk.evals.scorers import SCORERS
+from warden_sdk.evals.scorers.human import human_labels
 from warden_sdk.evals.scorers.judge import LLMJudge, llm_judge
 from warden_sdk.evals.validation import (
     export_labels,
@@ -119,12 +127,42 @@ def main() -> int:
     rescore = sub.add_parser("rescore", help="score a stored run again, without re-running the agent")
     rescore.add_argument("ref", help="run id or version tag")
     rescore.add_argument("--version", help="version tag for the new run (default: the original's)")
+    rescore.add_argument("--labels", type=Path, help="people's labels for this run's outputs, scored as 'human'")
     _add_scorer_args(rescore)
 
     export = sub.add_parser("export-labels", help="write a run's judged criteria to a file for people to label")
     export.add_argument("ref", help="run id or version tag")
     export.add_argument("--scorer", default="judge", help="the judge scorer's name (default judge)")
     export.add_argument("-o", "--out", type=Path, required=True, help="JSONL file to write")
+    export.add_argument("--per-item", action="store_true", help="one row per item instead of per judged criterion")
+
+    traces = sub.add_parser("from-traces", help="turn recorded traces into dataset items")
+    traces.add_argument("trace_ids", nargs="*", help="trace ids (default: the agent's recent traces)")
+    traces.add_argument("--agent-name", help="only traces from this agent_name")
+    traces.add_argument("--limit", type=int, default=20, help="how many recent traces (default 20)")
+    traces.add_argument("--errors-only", action="store_true", help="only traces that ended in an error")
+    traces.add_argument("--expect-tools", action="store_true", help="expect the tool calls the trace made")
+    traces.add_argument("--as-turns", action="store_true",
+                        help="write each as a one-turn conversation, for agents called with messages")
+    traces.add_argument("-o", "--out", type=Path, required=True, help="dataset to append to")
+
+    generate = sub.add_parser("generate", help="generate scenario items with an LLM")
+    generate.add_argument("--about", required=True, help="what the agent does, in a sentence or two")
+    generate.add_argument("-n", type=int, default=10, help="how many scenarios (default 10)")
+    generate.add_argument("--topic", action="append", default=[], help="a kind of request to cover (repeatable)")
+    generate.add_argument("--persona", action="append", default=[], help="a persona to use (repeatable)")
+    generate.add_argument("--max-turns", type=int, default=8)
+    generate.add_argument("--model", default=DEFAULT_MODEL, help=f"model that writes them (default {DEFAULT_MODEL})")
+    generate.add_argument("-o", "--out", type=Path, required=True, help="dataset to append to")
+
+    pair = sub.add_parser("pairwise", help="judge two runs' conversations side by side")
+    pair.add_argument("baseline", help="run id or version tag")
+    pair.add_argument("candidate", help="run id or version tag")
+    pair.add_argument("--question", default="Which agent handled the user's request better?",
+                      help="what the judge should compare")
+    pair.add_argument("--judge", dest="judge_target", metavar="MODULE:NAME",
+                      help="your own judge model (with `name` and `json()`)")
+    _add_judge_model_args(pair)
 
     validate = sub.add_parser("validate-judge", help="check a judge against human labels")
     validate.add_argument("labels", type=Path, help="labelled JSONL, e.g. from export-labels")
@@ -181,10 +219,25 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         return list_runs(args.dataset, args.limit)
     if args.command == "rescore":
         scorers = _scorers(parser, args.scorers, args.scorer, _judge(args) if args.judge else None)
+        if args.labels:
+            try:
+                labels = human_labels(args.labels)
+            except (OSError, ValueError) as e:
+                parser.error(f"--labels: {e}")
+            scorers[labels.name] = labels
         rescore(args.ref, scorers, version_tag=args.version)
         return 0
     if args.command == "export-labels":
-        return export_labels(args.ref, args.scorer, args.out)
+        return export_labels(args.ref, args.scorer, args.out, per_item=args.per_item)
+    if args.command == "from-traces":
+        return from_traces(args.trace_ids, args.agent_name, args.limit, args.errors_only, args.expect_tools,
+                           args.as_turns, args.out)
+    if args.command == "generate":
+        return generate(args.about, args.n, args.topic, args.persona, args.max_turns, args.model, args.out)
+    if args.command == "pairwise":
+        model = (load_target(args.judge_target, "--judge") if args.judge_target
+                 else ClaudeModel(args.judge_model, args.judge_effort, lazy=True))
+        return run_pairwise(args.baseline, args.candidate, args.question, model)
     if args.command == "validate-judge":
         judge = load_target(args.judge_target, "--judge") if args.judge_target else _judge(args)
         if not isinstance(judge, LLMJudge):
