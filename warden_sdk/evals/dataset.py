@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
+from warden_sdk.evals.environment import check_environment
 from warden_sdk.evals.runner.simulator import check_scenario
 
 
@@ -44,6 +45,10 @@ def load_dataset(path: Path) -> tuple[list[dict[str, Any]], str]:
             _check_turns(f"{path}:{lineno}", item["turns"])
         if "scenario" in item:
             check_scenario(f"{path}:{lineno}", item["scenario"])
+        if "environment" in item:
+            check_environment(f"{path}:{lineno}", item["environment"])
+        if "state" in (item.get("expected") or {}) and "environment" not in item:
+            raise ValueError(f"{path}:{lineno}: 'expected.state' needs an 'environment' to check")
         item_id = str(item["id"])
         if item_id in seen:
             raise ValueError(f"{path}:{lineno}: duplicate id {item_id!r}")

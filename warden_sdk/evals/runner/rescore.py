@@ -40,6 +40,8 @@ def _trace(data: dict[str, Any]) -> Trace:
 def _item(result: dict[str, Any]) -> dict[str, Any]:
     """The dataset item as it was, from what the result stored."""
     item: dict[str, Any] = {"id": result["item_id"]}
+    if result.get("environment") is not None:
+        item["environment"] = {"state": result["environment"]["initial_state"]}
     if result.get("simulation") is not None:
         item["scenario"] = result["input"]
     elif result.get("turns") is not None:
@@ -94,13 +96,14 @@ def rescore(run_ref: str, scorers: dict[str, Scorer], version_tag: str | None = 
                         error=r.get("error") if r.get("termination") == "agent_error" else None,
                         trace=traces[0] if traces else None, traces=traces,
                         transcript=r.get("transcript"), turns=r.get("turns"),
-                        simulation=r.get("simulation"), trial=r.get("trial") or 0,
+                        simulation=r.get("simulation"), environment=r.get("environment"), trial=r.get("trial") or 0,
                     )
                     scores = _score(case, scorers)
                 client.post(f"/eval_runs/{new_id}/results", json={
                     "result_id": str(uuid.uuid4()),
                     **{k: r.get(k) for k in ("item_id", "trial", "case_hash", "termination", "trace_id", "input",
-                                             "expected", "output", "error", "transcript", "turns", "simulation")},
+                                             "expected", "output", "error", "transcript", "turns", "simulation",
+                                             "environment")},
                     "trial": r.get("trial") or 0,
                     "termination": r.get("termination") or "completed",
                     "scores": scores,

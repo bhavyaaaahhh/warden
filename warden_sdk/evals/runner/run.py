@@ -1,5 +1,7 @@
 """run_eval: every item × trial through the agent, scored and stored, in parallel."""
 
+import hashlib
+import json
 import uuid
 from collections.abc import Callable
 from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
@@ -9,6 +11,7 @@ from typing import Any
 import httpx
 
 from warden_sdk.evals.dataset import case_hash, load_dataset
+from warden_sdk.evals.environment import Environment, with_faults
 from warden_sdk.evals.gitinfo import git_info
 from warden_sdk.evals.loading import agent_name, load_agent
 from warden_sdk.evals.runner.harness import (
@@ -44,11 +47,13 @@ def _score(case: Case, scorers: dict[str, Scorer]) -> list[dict[str, Any]]:
 
 
 def _play(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int, simulator: UserSimulator) -> dict[str, Any]:
+    # A fresh environment per attempt, so a retried trial doesn't see the last attempt's changes.
+    env = Environment(item["environment"], trial) if "environment" in item else None
     if "scenario" in item:
-        return _run_simulated(run_id, item, agent, trial, simulator)
+        return _run_simulated(run_id, item, agent, trial, simulator, env)
     if "turns" in item:
-        return _run_conversation(run_id, item, agent, trial)
-    return _run_single(run_id, item, agent, trial)
+        return _run_conversation(run_id, item, agent, trial, env)
+    return _run_single(run_id, item, agent, trial, env)
 
 
 def _termination(played: dict[str, Any]) -> str:
@@ -92,6 +97,7 @@ def _run_trial(
         transcript=played["transcript"],
         turns=played["turns"],
         simulation=played["simulation"],
+        environment=played["environment"],
         trial=trial,
     )
     trace_id = traces[0].trace_id if traces else None
@@ -116,6 +122,7 @@ def _result(
         "transcript": played.get("transcript"),
         "turns": played.get("turns"),
         "simulation": played.get("simulation"),
+        "environment": played.get("environment"),
         "scores": scores,
     }
 
@@ -148,14 +155,19 @@ def run_eval(
     trials: int = 1,
     concurrency: int = DEFAULT_CONCURRENCY,
     simulator: UserSimulator | None = None,
+    faults: list[dict[str, Any]] | None = None,
 ) -> str:
     """Run every dataset item `trials` times through the agent, score it, and store the results.
 
     `agent` is an import path ('package.module:function') or the function itself.
     Up to `concurrency` trials run at once, in threads. `simulator` plays the
     user in scenario items (default: a UserSimulator on the default model).
+    `faults` adds a copy of each item with an environment per fault (see with_faults).
     """
     items, dataset_hash = load_dataset(dataset_path)
+    if faults:
+        items = with_faults(items, faults)
+        dataset_hash = hashlib.sha256((dataset_hash + json.dumps(faults, sort_keys=True)).encode()).hexdigest()
     target = agent_name(agent)
     call = _agent_call(load_agent(agent) if isinstance(agent, str) else agent)
     scorers = scorers or SCORERS
@@ -218,5 +230,29 @@ def run_eval(
     print(f"\n{status}: {len(items)} items × {trials} trials, version {version_tag or '(untagged)'}")
     for name, results in passed.items():
         print(f"  {name:<18} {sum(results)}/{len(results)} passed")
+    if faults:
+        _print_fault_summary(items, done)
     print(f"\ncompare with: python -m warden_sdk.evals diff <baseline> {run_id}")
     return run_id
+
+
+def _passed_trials(results: list[dict[str, Any]]) -> tuple[int, int]:
+    """Trials where every check passed, out of trials that were measured."""
+    measured = [r for r in results if r["termination"] != "infra_error"]
+    passed = [r for r in measured if not any(s["outcome"] == "fail" for s in r["scores"])]
+    return len(passed), len(measured)
+
+
+def _print_fault_summary(items: list[dict[str, Any]], done: dict[str, list[dict[str, Any]]]) -> None:
+    """For each fault, how its items did next to the same items without it."""
+    by_fault: dict[str, list[dict[str, Any]]] = {}
+    for item in items:
+        if "fault_of" in item:
+            by_fault.setdefault(item["id"].split("@", 1)[1], []).append(item)
+    print("\nunder faults (trials with every check passing)")
+    for label, faulted in by_fault.items():
+        with_fault = [_passed_trials(done[i["id"]]) for i in faulted]
+        without = [_passed_trials(done[i["fault_of"]]) for i in faulted]
+        hit_passed, hit_total = sum(p for p, _ in with_fault), sum(n for _, n in with_fault)
+        base_passed, base_total = sum(p for p, _ in without), sum(n for _, n in without)
+        print(f"  {label:<28} {hit_passed}/{hit_total} with the fault, {base_passed}/{base_total} without")

@@ -1,0 +1,4 @@
+[
+  {"tool": "refund", "effect": "error", "message": "payments service unavailable"},
+  {"tool": "lookup_order", "on_call": 1, "effect": "timeout"}
+]
