@@ -10,6 +10,7 @@ from typing import Any
 
 import httpx
 
+from warden_sdk.evals.authoring.generate import unreviewed
 from warden_sdk.evals.dataset import case_hash, load_dataset
 from warden_sdk.evals.environment import Environment, with_faults
 from warden_sdk.evals.gitinfo import git_info
@@ -189,6 +190,9 @@ def run_eval(
         ).raise_for_status()
         print(f"eval run {run_id}")
         print(f"  dataset {dataset_path.stem} ({len(items)} items × {trials} trials) → {target}")
+        if pending := unreviewed(items):
+            print(f"  ⚠ {len(pending)} generated item(s) not reviewed yet: {', '.join(pending[:5])}"
+                  + ("…" if len(pending) > 5 else ""))
 
         status = "failed"
         passed: dict[str, list[bool]] = {}

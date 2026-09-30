@@ -66,6 +66,14 @@ class ClaudeModel:
                 messages=messages,
                 output_config={"effort": self.effort, "format": {"type": "json_schema", "schema": schema}},
             )
+        except TypeError as e:
+            if "authentication" not in str(e):
+                raise
+            # Not a flaky judge: nothing will work until credentials are set, so stop the run.
+            raise SystemExit(
+                "no Anthropic credentials: set ANTHROPIC_API_KEY or run `ant auth login` "
+                "(needed for judges, simulated users and generation)"
+            ) from e
         except (anthropic.RateLimitError, anthropic.APIConnectionError) as e:
             # The SDK already retried these; let the runner decide what an infra failure means.
             raise ModelError(f"{type(e).__name__}: {e}") from e

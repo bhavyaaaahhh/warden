@@ -1,18 +1,29 @@
+import json
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
 
+from warden_sdk.evals.authoring.from_traces import (
+    fetch_traces,
+    is_eval_trace,
+    item_from_trace,
+    write_items,
+)
+from warden_sdk.evals.authoring.generate import generate_scenarios
 from warden_sdk.evals.client import client as _client
 from warden_sdk.evals.client import fetch_run
 from warden_sdk.evals.compare import compare_runs, print_report
+from warden_sdk.evals.compare.pairwise import pairwise, print_pairwise
+from warden_sdk.evals.dataset import load_dataset
 from warden_sdk.evals.gitinfo import (
     GitBaselineError,
     baseline_commits,
     pick_git_baseline,
 )
 from warden_sdk.evals.loading import agent_name
+from warden_sdk.evals.models import ClaudeModel, Model
 from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
 from warden_sdk.evals.runner.simulator import UserSimulator
 from warden_sdk.evals.scorers import Scorer
@@ -188,3 +199,43 @@ def run_diff(baseline: str, candidate: str) -> int:
         cmp = compare_runs(*runs)
         cmp["warnings"] += judge_warnings(client, runs)
     return print_report(cmp)
+
+
+def from_traces(
+    trace_ids: list[str],
+    agent_name: str | None,
+    limit: int,
+    errors_only: bool,
+    expect_tools: bool,
+    as_turns: bool,
+    out: Path,
+) -> int:
+    with _client() as client:
+        traces = fetch_traces(client, trace_ids, agent_name, limit, errors_only)
+    items = [item_from_trace(t, expect_tools, as_turns) for t in traces if not is_eval_trace(t)]
+    if not items:
+        raise SystemExit("no traces matched (traces recorded by eval runs are skipped)")
+    added, skipped = write_items(items, out)
+    print(f"added {added} item(s) to {out}" + (f", skipped {skipped} already there" if skipped else ""))
+    print('fill in each item\'s "expected" (criteria, contains, tools) so it checks what matters')
+    return 0
+
+
+def generate(about: str, n: int, topics: list[str], personas: list[str], max_turns: int, model_name: str, out: Path) -> int:
+    existing = load_dataset(out)[0] if out.exists() and out.read_text().strip() else []
+    avoid = [i["scenario"]["goal"] for i in existing if "scenario" in i]
+    items = generate_scenarios(ClaudeModel(model_name, "medium", lazy=True), about, n, topics, personas, avoid, max_turns)
+    have = {i["id"] for i in existing}
+    items = [i for i in items if i["id"] not in have]
+    with out.open("a") as f:
+        for item in items:
+            f.write(json.dumps(item) + "\n")
+    print(f"added {len(items)} generated scenario(s) to {out}")
+    print('read each one, fix or delete the bad ones, and set "reviewed": true before trusting their results')
+    return 0
+
+
+def run_pairwise(baseline: str, candidate: str, question: str, model: Model) -> int:
+    with _client() as client:
+        a, b = fetch_run(client, baseline), fetch_run(client, candidate)
+    return print_pairwise(pairwise(model, a, b, question))
