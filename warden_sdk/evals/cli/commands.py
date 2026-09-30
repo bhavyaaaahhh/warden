@@ -4,14 +4,13 @@ from typing import Any
 
 import httpx
 
-from warden_sdk.evals.diff import compare_runs, fetch_run, print_report
-from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, agent_name, run_eval
+from warden_sdk.evals.client import client as _client
+from warden_sdk.evals.client import fetch_run
+from warden_sdk.evals.compare import compare_runs, print_report
+from warden_sdk.evals.loading import agent_name
+from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
 from warden_sdk.evals.scorers import Scorer
-from warden_sdk.tracer import WARDEN_URL
-
-
-def _client() -> httpx.Client:
-    return httpx.Client(base_url=WARDEN_URL, timeout=10.0)
+from warden_sdk.evals.validation import judge_warnings
 
 
 def _mark_baseline(client: httpx.Client, run_id: str) -> None:
@@ -48,7 +47,9 @@ def run_check(
                 return 0
             baseline_ref = candidate["baseline_run_id"]
         baseline = fetch_run(client, baseline_ref, exclude_run_id=run_id)
-        return print_report(compare_runs(baseline, candidate))
+        cmp = compare_runs(baseline, candidate)
+        cmp["warnings"] += judge_warnings(client, [baseline, candidate])
+        return print_report(cmp)
 
 
 def run_calibrate(
@@ -140,3 +141,11 @@ def list_runs(dataset: str | None = None, limit: int = 20) -> int:
             f"{r['dataset_name'][:13]:<14}{r['status']:<11}{verdict:<24}{_checks_summary(r['checks'])}"
         )
     return 0
+
+
+def run_diff(baseline: str, candidate: str) -> int:
+    with _client() as client:
+        runs = [fetch_run(client, baseline), fetch_run(client, candidate)]
+        cmp = compare_runs(*runs)
+        cmp["warnings"] += judge_warnings(client, runs)
+    return print_report(cmp)

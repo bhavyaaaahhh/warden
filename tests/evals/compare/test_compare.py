@@ -1,4 +1,4 @@
-from warden_sdk.evals.diff import compare_runs
+from warden_sdk.evals.compare import compare_runs
 
 
 def _result(item_id, trial, passed=True, scorer="contains", termination="completed", h="h", **score):

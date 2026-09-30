@@ -6,8 +6,9 @@ from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
 from server.db import jsonb, pool
+from server.routes.judges import judge_warnings
 from server.schemas import EvalResultIn, EvalRunIn, EvalRunStatus, EvalRunUpdate
-from warden_sdk.evals.diff import METHOD_VERSION, compare_runs
+from warden_sdk.evals.compare import METHOD_VERSION, compare_runs
 
 router = APIRouter(prefix="/eval_runs", tags=["evals"])
 
@@ -239,7 +240,9 @@ def compare_eval_runs(baseline: UUID, candidate: UUID):
     # jsonable_encoder turns Decimal/UUID/datetime into the same JSON types the CLI sees.
     a = jsonable_encoder(get_eval_run(baseline))
     b = jsonable_encoder(get_eval_run(candidate))
-    return compare_runs(a, b)
+    cmp = compare_runs(a, b)
+    cmp["warnings"] += judge_warnings([a, b])
+    return cmp
 
 
 @router.get("/{run_id}")

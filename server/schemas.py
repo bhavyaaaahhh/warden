@@ -79,3 +79,16 @@ class EvalResultIn(BaseModel):
     transcript: list[dict[str, Any]] | None = None
     turns: list[dict[str, Any]] | None = None
     scores: list[ScoreIn] = Field(default_factory=list)
+
+
+class JudgeValidationIn(BaseModel):
+    scorer_version: str
+    labels: int
+    compared: int
+    kappa: float | None = None
+    kappa_ci: list[float] | None = None
+    confusion: dict[str, int] = Field(default_factory=dict)
+    flip_rate: float | None = None
+    repeats: int
+    unscored: int
+    validated: bool
