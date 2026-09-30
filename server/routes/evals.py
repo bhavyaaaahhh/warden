@@ -69,8 +69,8 @@ def create_eval_result(run_id: UUID, result: EvalResultIn):
                 """
                 INSERT INTO eval_results
                     (result_id, run_id, item_id, trial, case_hash, termination, trace_id,
-                     input, expected, output, error, transcript, turns, simulation)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                     input, expected, output, error, transcript, turns, simulation, environment)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 """,
                 (
                     result.result_id,
@@ -87,6 +87,7 @@ def create_eval_result(run_id: UUID, result: EvalResultIn):
                     jsonb(result.transcript),
                     jsonb(result.turns),
                     jsonb(result.simulation),
+                    jsonb(result.environment),
                 ),
             )
             if result.scores:

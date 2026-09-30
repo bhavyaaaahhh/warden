@@ -35,11 +35,12 @@ def run_check(
     trials: int = 3,
     concurrency: int = DEFAULT_CONCURRENCY,
     simulator: UserSimulator | None = None,
+    faults: list[dict[str, Any]] | None = None,
 ) -> int:
     """Run the dataset, then diff against the baseline. Returns the diff's exit code."""
     run_id = run_eval(
         dataset_path, agent, version_tag=version_tag, scorers=scorers, trials=trials, concurrency=concurrency,
-        simulator=simulator,
+        simulator=simulator, faults=faults,
     )
     print()
     with _client() as client:
@@ -94,6 +95,7 @@ def run_calibrate(
     trials: int = 3,
     concurrency: int = DEFAULT_CONCURRENCY,
     simulator: UserSimulator | None = None,
+    faults: list[dict[str, Any]] | None = None,
 ) -> int:
     """Run the same agent twice and compare the runs (an A/A test).
 
@@ -101,7 +103,7 @@ def run_calibrate(
     shows how much the suite's results move on their own.
     """
     print("A/A calibration: running the same agent twice\n")
-    options = {"scorers": scorers, "trials": trials, "concurrency": concurrency, "simulator": simulator}
+    options = {"scorers": scorers, "trials": trials, "concurrency": concurrency, "simulator": simulator, "faults": faults}
     first = run_eval(dataset_path, agent, **options)
     print()
     second = run_eval(dataset_path, agent, **options)

@@ -28,6 +28,8 @@ class Case:
     turns: list[dict[str, Any]] | None = None
     # Scenario items only: {"simulator", "stopped_by", "stop_reason"}.
     simulation: dict[str, Any] | None = None
+    # Items with an environment only: {"initial_state", "final_state", "calls"}.
+    environment: dict[str, Any] | None = None
     trial: int = 0
 
     @property

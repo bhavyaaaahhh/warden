@@ -16,6 +16,7 @@ run, check and calibrate also take:
   --judge                   add the LLM judge (grades items' "criteria"; needs Anthropic credentials)
   --simulator-model M       model playing the user in "scenario" items (default claude-opus-5-5)
   --simulator module:name   your own simulated user
+  --faults FILE             run each item with an "environment" again under each tool fault in FILE
 
 REF is a run id or a version tag (the latest completed run with that tag).
 check --baseline git compares against the run on the commit your branch forked from.
@@ -26,6 +27,7 @@ validate-judge exits 0 if the judge passed validation, 1 if not.
 """
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -38,6 +40,7 @@ from warden_sdk.evals.cli.commands import (
     run_diff,
     set_baseline,
 )
+from warden_sdk.evals.environment import Fault
 from warden_sdk.evals.loading import load_scorer, load_target
 from warden_sdk.evals.models import DEFAULT_MODEL, ClaudeModel
 from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
@@ -62,6 +65,8 @@ def _add_run_args(p: argparse.ArgumentParser, trials: int, version: bool = True)
         p.add_argument("--version", help="version tag (defaults to the tag the agent's traces report)")
     p.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
                    help=f"trials to run at once (default {DEFAULT_CONCURRENCY})")
+    p.add_argument("--faults", type=Path, metavar="FILE",
+                   help="JSON list of tool faults; each item with an environment is also run once per fault")
     _add_scorer_args(p)
     p.add_argument("--simulator", dest="simulator_target", metavar="MODULE:NAME",
                    help="your own simulated user: a UserSimulator, or a model to give the built-in one")
@@ -195,7 +200,9 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
         parser.error("--concurrency must be at least 1")
     scorers = _scorers(parser, args.scorers, args.scorer, _judge(args) if args.judge else None)
     simulator = _simulator(parser, args)
-    common = {"scorers": scorers, "trials": args.trials, "concurrency": args.concurrency, "simulator": simulator}
+    faults = _faults(parser, args.faults)
+    common = {"scorers": scorers, "trials": args.trials, "concurrency": args.concurrency, "simulator": simulator,
+              "faults": faults}
     if args.command == "calibrate":
         return run_calibrate(args.dataset, args.agent, **common)
     if args.command == "check":
@@ -217,3 +224,17 @@ def _simulator(parser: argparse.ArgumentParser, args: argparse.Namespace) -> Use
     if callable(getattr(target, "json", None)) and hasattr(target, "name"):
         return UserSimulator(target)
     parser.error("--simulator must name a UserSimulator or a model with `name` and `json()`")
+
+
+def _faults(parser: argparse.ArgumentParser, path: Path | None) -> list[dict] | None:
+    if path is None:
+        return None
+    try:
+        faults = json.loads(path.read_text())
+        if not isinstance(faults, list):
+            raise ValueError("expected a JSON list of faults")
+        for f in faults:
+            Fault.parse(f)
+    except (OSError, ValueError) as e:
+        parser.error(f"--faults {path}: {e}")
+    return faults

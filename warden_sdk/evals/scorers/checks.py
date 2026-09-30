@@ -29,7 +29,14 @@ def exact_match(case: Case) -> Score | None:
 
 
 def no_errors(case: Case) -> Score:
-    errors = [f"{s.name}: {s.error}" for s in case.spans if s.error]
+    # Errors from faults the eval injected are the harness's doing, not the agent's.
+    injected = {
+        c["error"] for c in (case.environment or {}).get("calls", []) if c.get("fault") and c.get("error")
+    }
+    errors = [
+        f"{s.name}: {s.error}" for s in case.spans
+        if s.error and s.error.split(": ", 1)[-1] not in injected
+    ]
     # An exception raised inside a span is recorded on the span too; don't report it twice.
     if case.error and not any(s.error == case.error for s in case.spans):
         errors.insert(0, case.error)

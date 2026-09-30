@@ -6,6 +6,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from warden_sdk.evals.environment import Environment
 from warden_sdk.evals.runner.simulator import (
     DEFAULT_MAX_TURNS,
     SimulatorError,
@@ -26,6 +27,8 @@ class EvalContext:
     run_id: str
     item_id: str
     trial: int
+    # The item's environment, for items that have one: call tools through env.call().
+    env: Environment | None = None
 
     @property
     def thread_id(self) -> str:
@@ -64,11 +67,13 @@ def _as_messages(reply: Any) -> list[dict[str, Any]]:
     raise TypeError(f"multi-turn agent must return a str, a message dict, or a list of them, not {type(reply).__name__}")
 
 
-def _tool_calls(messages: list[dict[str, Any]], traces: list[Trace]) -> list[dict[str, Any]] | None:
+def _tool_calls(
+    messages: list[dict[str, Any]], traces: list[Trace], env_calls: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]] | None:
     """The tool calls in one turn, as {"name", "args"}. None means nothing could tell us.
 
-    Prefers the calls in the messages the agent returned (OpenAI shape), and
-    falls back to tool_call spans in its traces.
+    Prefers the calls in the messages the agent returned (OpenAI shape), then
+    calls made through the item's environment, then tool_call spans in its traces.
     """
     calls = []
     for m in messages:
@@ -77,28 +82,35 @@ def _tool_calls(messages: list[dict[str, Any]], traces: list[Trace]) -> list[dic
             calls.append({"name": fn.get("name"), "args": parse_args(fn.get("arguments", fn.get("args")))})
     if calls:
         return calls
+    if env_calls is not None:
+        return [{"name": c["name"], "args": c["args"]} for c in env_calls]
     if traces:
         return [{"name": s.name, "args": _jsonable(s.input)} for t in traces for s in t.spans if s.span_type == "tool_call"]
     return None
 
 
-def _run_single(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int) -> dict[str, Any]:
+def _run_single(
+    run_id: str, item: dict[str, Any], agent: AgentCall, trial: int, env: Environment | None = None
+) -> dict[str, Any]:
     output, error = None, None
     with _eval_item(run_id, item["id"], trial) as ctx:
         try:
-            output = agent(item["input"], EvalContext(run_id, item["id"], trial))
+            output = agent(item["input"], EvalContext(run_id, item["id"], trial, env))
         except (WardenError, InfraError):
             raise
         except Exception as e:
             error = f"{type(e).__name__}: {e}"
-    return {"output": output, "error": error, "traces": ctx.traces, "transcript": None, "turns": None, "simulation": None}
+    return {
+        "output": output, "error": error, "traces": ctx.traces, "transcript": None, "turns": None,
+        "simulation": None, "environment": env.record() if env else None,
+    }
 
 
 class _Conversation:
     """The state of one multi-turn trial, shared by scripted and simulated conversations."""
 
-    def __init__(self, run_id: str, item_id: str, trial: int, agent: AgentCall):
-        self.run_id, self.item_id, self.trial, self.agent = run_id, item_id, trial, agent
+    def __init__(self, run_id: str, item_id: str, trial: int, agent: AgentCall, env: Environment | None = None):
+        self.run_id, self.item_id, self.trial, self.agent, self.env = run_id, item_id, trial, agent, env
         self.messages: list[dict[str, Any]] = []
         self.turns: list[dict[str, Any]] = []
         self.traces: list[Trace] = []
@@ -109,9 +121,11 @@ class _Conversation:
         self.messages.append({"role": "user", "content": user_message})
         reply: list[dict[str, Any]] = []
         started = time.monotonic()
+        env_calls_before = len(self.env.calls) if self.env else 0
         with _eval_item(self.run_id, self.item_id, self.trial) as ctx:
             try:
-                reply = _as_messages(self.agent(list(self.messages), EvalContext(self.run_id, self.item_id, self.trial)))
+                context = EvalContext(self.run_id, self.item_id, self.trial, self.env)
+                reply = _as_messages(self.agent(list(self.messages), context))
             except (WardenError, InfraError):
                 raise
             except Exception as e:
@@ -122,7 +136,7 @@ class _Conversation:
             "index": len(self.turns),
             "user": user_message,
             "messages": _jsonable(reply),
-            "tool_calls": _tool_calls(reply, ctx.traces),
+            "tool_calls": _tool_calls(reply, ctx.traces, self.env.calls[env_calls_before:] if self.env else None),
             "error": self.error,
             "duration_ms": (time.monotonic() - started) * 1000,
             "trace_ids": [t.trace_id for t in ctx.traces],
@@ -137,12 +151,15 @@ class _Conversation:
             "transcript": _jsonable(self.messages),
             "turns": self.turns,
             "simulation": simulation,
+            "environment": self.env.record() if self.env else None,
         }
 
 
-def _run_conversation(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int) -> dict[str, Any]:
+def _run_conversation(
+    run_id: str, item: dict[str, Any], agent: AgentCall, trial: int, env: Environment | None = None
+) -> dict[str, Any]:
     """Play the scripted user turns, calling the agent with the conversation so far each time."""
-    convo = _Conversation(run_id, item["id"], trial, agent)
+    convo = _Conversation(run_id, item["id"], trial, agent, env)
     for step in item["turns"]:
         if "user" in step:
             convo.play(step["user"])
@@ -152,12 +169,17 @@ def _run_conversation(run_id: str, item: dict[str, Any], agent: AgentCall, trial
 
 
 def _run_simulated(
-    run_id: str, item: dict[str, Any], agent: AgentCall, trial: int, simulator: UserSimulator
+    run_id: str,
+    item: dict[str, Any],
+    agent: AgentCall,
+    trial: int,
+    simulator: UserSimulator,
+    env: Environment | None = None,
 ) -> dict[str, Any]:
     """Let the simulated user talk to the agent until it stops, the agent raises, or max_turns."""
     scenario = item["scenario"]
     opening = scenario.get("opening", [])
-    convo = _Conversation(run_id, item["id"], trial, agent)
+    convo = _Conversation(run_id, item["id"], trial, agent, env)
     stopped_by, stop_reason = "max_turns", None
     for i in range(scenario.get("max_turns", DEFAULT_MAX_TURNS)):
         if i < len(opening):

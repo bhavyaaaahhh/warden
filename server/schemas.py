@@ -79,6 +79,7 @@ class EvalResultIn(BaseModel):
     transcript: list[dict[str, Any]] | None = None
     turns: list[dict[str, Any]] | None = None
     simulation: dict[str, Any] | None = None
+    environment: dict[str, Any] | None = None
     scores: list[ScoreIn] = Field(default_factory=list)
 
 

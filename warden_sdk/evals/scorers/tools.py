@@ -149,6 +149,8 @@ def _called_tools(case: Case) -> list[Any] | None:
         if all(calls is None for calls in per_turn):
             return None
         return [call for calls in per_turn for call in calls or []]
+    if case.environment is not None:
+        return [{"name": c["name"], "args": c["args"]} for c in case.environment["calls"]]
     if not case.traces:
         return None  # no trace is not the same as no tool calls
     return [{"name": s.name, "args": s.input} for s in case.spans if s.span_type == "tool_call"]
