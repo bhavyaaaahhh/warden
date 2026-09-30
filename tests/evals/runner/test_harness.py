@@ -40,7 +40,9 @@ def test_scripted_conversation_passes_every_turn():
     item = {"id": "refund", "turns": SCRIPT}
     result, _ = _trial(item, support_agent, SCORERS, trial=0)
     assert result["termination"] == "completed"
-    assert [t["tool_calls"] for t in result["turns"]] == [["lookup_order"], ["refund"]]
+    assert [t["tool_calls"] for t in result["turns"]] == [
+        [{"name": "lookup_order", "args": None}], [{"name": "refund", "args": None}]
+    ]
     # The agent sees the whole conversation, tool messages included.
     assert [m["role"] for m in result["transcript"]] == ["user", "assistant", "user", "assistant", "tool", "assistant"]
     assert result["output"] == "Refunded."

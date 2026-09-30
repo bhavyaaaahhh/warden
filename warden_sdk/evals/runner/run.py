@@ -9,6 +9,7 @@ from typing import Any
 import httpx
 
 from warden_sdk.evals.dataset import case_hash, load_dataset
+from warden_sdk.evals.gitinfo import git_info
 from warden_sdk.evals.loading import agent_name, load_agent
 from warden_sdk.evals.runner.harness import (
     AgentCall,
@@ -171,6 +172,7 @@ def run_eval(
                 "agent": target,
                 "version_tag": version_tag,
                 "trials": trials,
+                "metadata": {"git": git_info()},
             },
         ).raise_for_status()
         print(f"eval run {run_id}")

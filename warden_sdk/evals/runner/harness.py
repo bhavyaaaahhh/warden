@@ -11,6 +11,7 @@ from warden_sdk.evals.runner.simulator import (
     SimulatorError,
     UserSimulator,
 )
+from warden_sdk.evals.scorers.tools import parse_args
 from warden_sdk.tracer import Trace, WardenError, _eval_item, _jsonable
 
 
@@ -63,18 +64,21 @@ def _as_messages(reply: Any) -> list[dict[str, Any]]:
     raise TypeError(f"multi-turn agent must return a str, a message dict, or a list of them, not {type(reply).__name__}")
 
 
-def _tool_names(messages: list[dict[str, Any]], traces: list[Trace]) -> list[str] | None:
-    # Prefer the tool calls in the messages the agent returned (OpenAI shape);
-    # fall back to tool_call spans. None means nothing could tell us.
-    names = [
-        call.get("function", {}).get("name") or call.get("name")
-        for m in messages
-        for call in m.get("tool_calls") or []
-    ]
-    if names:
-        return names
+def _tool_calls(messages: list[dict[str, Any]], traces: list[Trace]) -> list[dict[str, Any]] | None:
+    """The tool calls in one turn, as {"name", "args"}. None means nothing could tell us.
+
+    Prefers the calls in the messages the agent returned (OpenAI shape), and
+    falls back to tool_call spans in its traces.
+    """
+    calls = []
+    for m in messages:
+        for call in m.get("tool_calls") or []:
+            fn = call.get("function", call)
+            calls.append({"name": fn.get("name"), "args": parse_args(fn.get("arguments", fn.get("args")))})
+    if calls:
+        return calls
     if traces:
-        return [s.name for t in traces for s in t.spans if s.span_type == "tool_call"]
+        return [{"name": s.name, "args": _jsonable(s.input)} for t in traces for s in t.spans if s.span_type == "tool_call"]
     return None
 
 
@@ -118,7 +122,7 @@ class _Conversation:
             "index": len(self.turns),
             "user": user_message,
             "messages": _jsonable(reply),
-            "tool_calls": _tool_names(reply, ctx.traces),
+            "tool_calls": _tool_calls(reply, ctx.traces),
             "error": self.error,
             "duration_ms": (time.monotonic() - started) * 1000,
             "trace_ids": [t.trace_id for t in ctx.traces],

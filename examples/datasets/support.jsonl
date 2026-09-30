@@ -1,7 +1,7 @@
 {"id": "status-shipped", "turns": [{"user": "where is order 42?"}, {"expect": {"tools": ["lookup_order"], "contains": ["shipped"]}}, {"user": "thanks"}, {"expect": {"contains": ["welcome"]}}]}
 {"id": "status-processing", "turns": [{"user": "what's the status of 17"}, {"expect": {"tools": ["lookup_order"], "contains": ["processing"]}}]}
 {"id": "refund-after-status", "turns": [{"user": "where is 108"}, {"expect": {"tools": ["lookup_order"], "contains": ["shipped"]}}, {"user": "it arrived broken, refund please"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["refunded"]}}]}
-{"id": "refund-direct", "turns": [{"user": "I want a refund for order 55"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["refunded"]}}], "expected": {"criteria": ["checks the order before refunding it"]}}
+{"id": "refund-direct", "turns": [{"user": "I want a refund for order 55"}, {"expect": {"tools": ["lookup_order", {"name": "refund", "args": {"order": "55"}}], "contains": ["refunded"]}}], "expected": {"criteria": ["checks the order before refunding it"]}}
 {"id": "refund-ask-number", "turns": [{"user": "I want a refund"}, {"expect": {"contains": ["order number"]}}, {"user": "it's 73, refund it"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["73"]}}]}
 {"id": "refund-then-thanks", "turns": [{"user": "refund order 12 please"}, {"expect": {"tools": ["lookup_order", "refund"]}}, {"user": "thank you"}, {"expect": {"contains": ["welcome"]}}]}
 {"id": "refund-large-order", "turns": [{"user": "refund 90001, wrong size"}, {"expect": {"tools": ["lookup_order", "refund"], "contains": ["90001"]}}]}
