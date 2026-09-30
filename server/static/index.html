@@ -95,7 +95,7 @@
   table.t td.clip { max-width: 260px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   table.t tr.expanded td { background: var(--hover); }
   .chip { display: inline-block; font-size: 11px; padding: 1px 6px; border-radius: 10px; margin: 0 4px 2px 0; border: 1px solid var(--border); white-space: nowrap; }
-  .chip.pass { color: var(--ok); } .chip.fail { color: var(--err); border-color: var(--err); }
+  .chip.pass { color: var(--ok); } .chip.fail { color: var(--err); border-color: var(--err); } .chip.unscored { color: var(--muted); border-style: dashed; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 10px; }
   .tile { background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
   .tile .k { font-size: 11px; font-weight: 600; text-transform: uppercase; color: var(--muted); }
@@ -104,6 +104,7 @@
   .verdict { border-radius: 8px; padding: 12px 14px; font-size: 15px; font-weight: 600; border: 1px solid; margin-bottom: 12px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
   .verdict.bad { color: var(--err); border-color: var(--err); background: color-mix(in srgb, var(--err) 8%, var(--panel)); }
   .verdict.ok { color: var(--ok); border-color: var(--ok); background: color-mix(in srgb, var(--ok) 8%, var(--panel)); }
+  .verdict.undecided { color: var(--running); border-color: var(--running); background: color-mix(in srgb, var(--running) 8%, var(--panel)); }
   .verdict .sub { font-size: 13px; font-weight: 400; color: var(--muted); }
   .verdict a { font-size: 13px; font-weight: 500; margin-left: auto; }
   .warn { color: var(--running); margin: 4px 0; }
@@ -334,10 +335,11 @@ const CHECK_CMD = "uv run python -m warden_sdk.evals check examples/datasets/dem
 
 function verdictCell(r) {
   if (r.is_baseline) return $("span", { className: "star", textContent: "★ baseline" });
-  if (r.regressions_vs_baseline == null) return $("span", { className: "muted", textContent: "no baseline" });
-  return r.regressions_vs_baseline
-    ? $("span", { className: "bad", textContent: `✗ ${r.regressions_vs_baseline} regressed` })
-    : $("span", { className: "ok", textContent: "✓ no regressions" });
+  const vs = r.vs_baseline;
+  if (vs == null) return $("span", { className: "muted", textContent: "no baseline" });
+  if (vs.verdict === "regression") return $("span", { className: "bad", textContent: `✗ regression (${vs.broke} broke)` });
+  if (vs.verdict === "undecided") return $("span", { className: "warn", textContent: "? undecided" });
+  return $("span", { className: "ok", textContent: "✓ no regression" });
 }
 
 function checkChips(checks) {
@@ -406,7 +408,7 @@ async function renderEvalRun(runId, seq) {
   let run, siblings;
   try {
     run = await api(`/eval_runs/${runId}`);
-    const q = new URLSearchParams({ dataset_name: run.dataset_name, agent: run.agent, status: "completed", limit: "100" });
+    const q = new URLSearchParams({ dataset_name: run.dataset_name, agent: run.agent, status: "completed", limit: "100", verdicts: "false" });
     siblings = (await api(`/eval_runs?${q}`)).filter((r) => r.run_id !== run.run_id);
   } catch (e) {
     if (seq === navSeq) evalsRoot().replaceChildren(
@@ -488,26 +490,26 @@ async function renderEvalRun(runId, seq) {
 }
 
 function renderItems(run) {
-  const checkNames = [...new Set(run.results.flatMap((r) => r.scores.filter((s) => s.passed != null).map((s) => s.scorer)))].sort();
-  const failed = (r) => r.error || r.scores.some((s) => s.passed === false);
+  const checkNames = [...new Set(run.results.flatMap((r) => r.scores.filter((s) => s.outcome).map((s) => s.scorer)))].sort();
+  const failed = (r) => r.error || r.termination === "infra_error" || r.scores.some((s) => s.outcome === "fail");
   const onlyFailures = $("input", { type: "checkbox", onchange: () => draw() });
   const tbody = $("tbody");
   const draw = () => {
     const rows = run.results.filter((r) => !onlyFailures.checked || failed(r));
     tbody.replaceChildren(...rows.flatMap((r) => {
-      const byName = Object.fromEntries(r.scores.map((s) => [s.scorer, s]));
+      const byName = Object.fromEntries(r.scores.filter((s) => !s.outcome).map((s) => [s.scorer, s]));
       const detailRow = $("tr", { hidden: true }, $("td", { colSpan: 6 + checkNames.length }, itemDetail(r)));
       const row = $("tr", { className: "click", onclick: () => {
         detailRow.hidden = !detailRow.hidden;
         row.classList.toggle("expanded", !detailRow.hidden);
       } },
         $("td", {}, $("span", { className: failed(r) ? "bad" : "ok", textContent: failed(r) ? "✗" : "✓" })),
-        $("td", {}, $("b", { textContent: r.item_id })),
+        $("td", {}, $("b", { textContent: r.item_id }), run.trials > 1 ? $("span", { className: "muted", textContent: ` #${r.trial + 1}` }) : null),
         $("td", { className: "clip", textContent: preview(r.input), title: preview(r.input) }),
         $("td", { className: "clip muted", textContent: preview(r.output), title: preview(r.output) }),
         ...checkNames.map((n) => {
-          const s = byName[n];
-          return $("td", {}, s ? $("span", { className: "chip " + (s.passed ? "pass" : "fail"), textContent: s.passed ? "pass" : "fail", title: s.reason || "" }) : $("span", { className: "muted", textContent: "—" }));
+          const c = checkOf(r, n);
+          return $("td", {}, c ? $("span", { className: "chip " + c.outcome, textContent: c.outcome, title: c.reason || "" }) : $("span", { className: "muted", textContent: "—" }));
         }),
         $("td", { className: "num", textContent: fmtMs(byName.latency_ms?.value) }),
         $("td", { className: "num", textContent: byName.cost_usd ? fmtCost(byName.cost_usd.value) : "—" }),
@@ -518,7 +520,7 @@ function renderItems(run) {
   };
   draw();
   return $("div", {},
-    $("h3", { className: "section" }, text(`Items (${run.results.length})`)),
+    $("h3", { className: "section" }, text(run.trials > 1 ? `Items (${new Set(run.results.map((r) => r.item_id)).size} × ${run.trials} trials)` : `Items (${run.results.length})`)),
     $("label", { className: "hint", style: "display:inline-flex;gap:6px;align-items:center;margin-bottom:8px" }, onlyFailures, text("Only failures")),
     $("table", { className: "t" },
       $("thead", {}, $("tr", {},
@@ -530,6 +532,53 @@ function renderItems(run) {
   );
 }
 
+// One outcome per scorer: a scorer with several criteria (one per turn) fails if any does.
+function checkOf(r, name) {
+  const scores = r.scores.filter((s) => s.scorer === name && s.outcome);
+  if (!scores.length) return null;
+  const failed = scores.filter((s) => s.outcome === "fail");
+  if (failed.length) return { outcome: "fail", reason: failed.map((s) => (s.criterion ? `${s.criterion}: ` : "") + s.reason).join("; ") };
+  const unscored = scores.find((s) => s.outcome === "unscored");
+  return unscored ? { outcome: "unscored", reason: unscored.reason } : { outcome: "pass", reason: null };
+}
+
+const STOPPED_BY = {
+  simulator: (reason) => `the simulated user stopped (${reason})`,
+  max_turns: () => "it ran out of turns",
+  agent_error: () => "the agent raised an error",
+};
+
+// Older runs stored bare tool names; newer ones {name, args}.
+function toolCallText(c) {
+  if (typeof c === "string") return c;
+  return c.args == null ? c.name : `${c.name}(${JSON.stringify(c.args)})`;
+}
+
+function conversation(r) {
+  const sim = r.simulation;
+  return $("div", {}, $("div", { className: "label-sm", textContent: sim ? "Conversation with a simulated user" : "Conversation" }),
+    sim ? $("p", { className: "hint", textContent: `Ended because ${(STOPPED_BY[sim.stopped_by] || (() => sim.stopped_by))(sim.stop_reason)} · ${sim.simulator}` }) : null,
+    ...r.turns.map((t) => $("div", { className: "card" },
+      $("div", {}, $("b", { textContent: `Turn ${t.index + 1} · user: ` }), text(t.user)),
+      ...t.messages.filter((m) => m.role === "assistant" && m.content).map((m) => $("div", {}, $("b", { textContent: "agent: " }), text(m.content))),
+      $("div", { className: "muted" }, text(t.tool_calls == null ? "tools: not recorded" : `tools: ${t.tool_calls.map(toolCallText).join(", ") || "none"}`)),
+      t.error ? $("pre", { className: "error", textContent: t.error }) : null)));
+}
+
+function environmentDetail(env) {
+  const call = (c) => $("div", { className: c.error ? "bad" : "" },
+    text(`${c.name}(${JSON.stringify(c.args)})`),
+    c.fault ? $("span", { className: "chip unscored", textContent: `injected ${c.fault}` }) : null,
+    text(c.error ? ` → error: ${c.error}` : ` → ${JSON.stringify(c.result)}`));
+  return $("div", {},
+    $("div", { className: "label-sm", textContent: `Tool calls through the environment (${env.calls.length})` }),
+    env.calls.length ? $("div", { className: "card" }, ...env.calls.map(call)) : $("p", { className: "muted", textContent: "None" }),
+    $("div", { className: "sbs" },
+      $("div", {}, $("div", { className: "label-sm", textContent: "Initial state" }), $("pre", { textContent: pretty(env.initial_state) })),
+      $("div", {}, $("div", { className: "label-sm", textContent: "Final state" }), $("pre", { textContent: pretty(env.final_state) })),
+    ));
+}
+
 function itemDetail(r) {
   const reasons = r.scores.filter((s) => s.reason);
   return $("div", {},
@@ -538,10 +587,12 @@ function itemDetail(r) {
       $("div", {}, $("div", { className: "label-sm", textContent: "Input" }), $("pre", { textContent: pretty(r.input) })),
       $("div", {}, $("div", { className: "label-sm", textContent: "Expected" }), $("pre", { textContent: pretty(r.expected) })),
     ),
-    $("div", { className: "label-sm", textContent: "Output" }), $("pre", { textContent: pretty(r.output) }),
+    r.turns ? conversation(r) : $("div", {}, $("div", { className: "label-sm", textContent: "Output" }), $("pre", { textContent: pretty(r.output) })),
+    r.environment ? environmentDetail(r.environment) : null,
     r.error ? $("div", {}, $("div", { className: "label-sm", textContent: "Error" }), $("pre", { className: "error", textContent: r.error })) : null,
     reasons.length ? $("div", {}, $("div", { className: "label-sm", textContent: "Scorer notes" }),
-      ...reasons.map((s) => $("div", {}, $("b", { textContent: s.scorer + ": " }), text(s.reason)))) : null,
+      ...reasons.map((s) => $("div", { className: s.outcome === "unscored" ? "muted" : "" },
+        $("b", { textContent: `${s.scorer}${s.criterion ? " " + s.criterion : ""}${s.outcome === "unscored" ? " (unscored)" : ""}: ` }), text(s.reason)))) : null,
   );
 }
 
@@ -552,59 +603,78 @@ function fmtMetric(name, v) {
 }
 
 // Shared by the run page's "check vs baseline" and the full compare page.
+const VERDICT_TEXT = { regression: "✗ Regression", undecided: "? Could not decide", "no regression": "✓ No regression detected" };
+const TRANSITION_TEXT = { broke: "Broke", degraded: "Degraded", fixed: "Fixed", stabilised: "Stabilised", improved: "Improved" };
+
 function renderComparison(cmp, { compact = false } = {}) {
   const b = cmp.baseline, c = cmp.candidate;
-  const n = cmp.regressions.length;
-  const verdict = $("div", { className: "verdict " + (n ? "bad" : "ok") },
-    text(n ? `✗ ${n} regression${n === 1 ? "" : "s"}` : "✓ No regressions"),
-    $("span", { className: "sub", textContent: `vs ${b.run_id === c.run_id ? "itself" : `baseline ${versionOf(b)} (${short(b.run_id)})`} · ${cmp.items_compared} items compared` + (cmp.fixes.length ? ` · ${cmp.fixes.length} fixed` : "") }),
+  const cls = { regression: "bad", undecided: "undecided", "no regression": "ok" }[cmp.verdict];
+  const broke = cmp.transitions.filter((t) => t.label === "broke").length;
+  const verdict = $("div", { className: "verdict " + cls },
+    text(VERDICT_TEXT[cmp.verdict]),
+    $("span", { className: "sub", textContent: `vs ${b.run_id === c.run_id ? "itself" : `baseline ${versionOf(b)} (${short(b.run_id)})`} · ${cmp.items_compared} items · ${b.trials || 1} vs ${c.trials || 1} trials` + (broke ? ` · ${broke} broke` : "") }),
     compact ? $("a", { href: `#/compare/${b.run_id}/${c.run_id}`, textContent: "Full comparison →" }) : null,
   );
+  const pct = (v) => v == null ? "—" : `${Math.round(v * 100)}%`;
+  const pts = (v) => `${v >= 0 ? "+" : ""}${Math.round(v * 100)}`;
+  const verdictClass = (v) => ({ regression: "bad", improvement: "ok", worse: "flag", better: "ok" })[v] || "muted";
   const summary = $("table", { className: "t" },
     $("thead", {}, $("tr", {}, $("th", {}), $("th", { className: "num", textContent: "Baseline" }),
-      $("th", { className: "num", textContent: "Candidate" }), $("th", { className: "num", textContent: "Change" }))),
+      $("th", { className: "num", textContent: "Candidate" }), $("th", { className: "num", textContent: "Change (95% CI)" }),
+      $("th", { className: "num", textContent: "p" }), $("th", { textContent: "Verdict" }))),
     $("tbody", {},
-      ...cmp.checks.map((k) => {
-        const d = k.candidate_passed - k.baseline_passed;
-        return $("tr", {}, $("td", { textContent: k.scorer }),
-          $("td", { className: "num", textContent: `${k.baseline_passed}/${k.total}` }),
-          $("td", { className: "num", textContent: `${k.candidate_passed}/${k.total}` }),
-          $("td", { className: "num " + (d < 0 ? "bad" : d > 0 ? "ok" : "muted"), textContent: (d > 0 ? "+" : "") + d }));
-      }),
+      ...cmp.checks.map((k) => $("tr", {},
+        $("td", { textContent: k.scorer }),
+        $("td", { className: "num", textContent: pct(k.baseline_rate), title: k.pass_k.baseline != null ? `pass^${k.pass_k.k_baseline} ${pct(k.pass_k.baseline)}` : "" }),
+        $("td", { className: "num", textContent: pct(k.candidate_rate), title: k.pass_k.candidate != null ? `pass^${k.pass_k.k_candidate} ${pct(k.pass_k.candidate)}` : "" }),
+        $("td", { className: "num", textContent: k.delta == null ? "—" : `${pts(k.delta)} pts` + (k.ci ? ` [${pts(k.ci[0])}, ${pts(k.ci[1])}]` : "") }),
+        $("td", { className: "num muted", textContent: k.p_adjusted.toFixed(3) }),
+        $("td", { className: verdictClass(k.verdict), textContent: k.verdict, title: k.note || "" }),
+      )),
       ...cmp.metrics.map((m) => $("tr", {},
         $("td", { textContent: `${m.scorer} ${m.aggregate}` }),
         $("td", { className: "num", textContent: fmtMetric(m.scorer, m.baseline) }),
         $("td", { className: "num", textContent: fmtMetric(m.scorer, m.candidate) }),
-        $("td", { className: "num" + (m.flagged ? " flag" : " muted"), textContent: `${m.change_pct >= 0 ? "+" : ""}${Math.round(m.change_pct)}%${m.flagged ? " ▲" : ""}` }),
+        $("td", { className: "num", textContent: `${m.change_pct >= 0 ? "+" : ""}${Math.round(m.change_pct)}%` + (m.ci ? ` [${Math.round(m.ci[0])}%, ${Math.round(m.ci[1])}%]` : "") }),
+        $("td", {}),
+        $("td", { className: verdictClass(m.verdict), textContent: m.verdict + (m.flagged ? " ▲" : "") }),
       )),
     ),
   );
-  const traceLinks = (r) => $("span", { className: "links" },
-    r.baseline_trace_id ? $("a", { href: `#/traces/${r.baseline_trace_id}`, textContent: "baseline trace" }) : null,
-    r.candidate_trace_id ? $("a", { href: `#/traces/${r.candidate_trace_id}`, textContent: "candidate trace" }) : null);
-  const regressions = cmp.regressions.map((r) => $("div", { className: "card" },
+  const notes = cmp.checks.filter((k) => k.note).map((k) => $("p", { className: "hint" }, $("b", { textContent: k.scorer + ": " }), text(k.note)));
+  const traceLinks = (t) => $("span", { className: "links" },
+    t.baseline_trace_id ? $("a", { href: `#/traces/${t.baseline_trace_id}`, textContent: "baseline trace" }) : null,
+    t.candidate_trace_id ? $("a", { href: `#/traces/${t.candidate_trace_id}`, textContent: "candidate trace" }) : null);
+  const moved = (t) => Object.entries(t.scorers).filter(([, s]) => s.label === t.label)
+    .map(([name, s]) => `${name} ${s.baseline} → ${s.candidate}`).join(", ");
+  const detailed = (t) => $("div", { className: "card" },
     $("div", { className: "head" },
-      $("span", { className: "bad", textContent: "✗" }), $("b", { textContent: r.item_id }),
-      $("span", { className: "muted", textContent: `${r.scorers.join(", ")}: passed → failed` }), traceLinks(r)),
-    $("div", { className: "label-sm", textContent: "Input" }), $("pre", { textContent: pretty(r.input) }),
+      $("span", { className: "bad", textContent: "✗" }), $("b", { textContent: t.item_id }),
+      $("span", { className: "muted", textContent: moved(t) }), traceLinks(t)),
+    $("div", { className: "label-sm", textContent: "Input" }), $("pre", { textContent: pretty(t.input) }),
     $("div", { className: "sbs" },
-      $("div", {}, $("div", { className: "label-sm", textContent: "Baseline output" }), $("pre", { textContent: pretty(r.baseline_output) })),
-      $("div", {}, $("div", { className: "label-sm", textContent: "Candidate output" }), $("pre", { textContent: pretty(r.candidate_output) })),
+      $("div", {}, $("div", { className: "label-sm", textContent: "Baseline output" }), $("pre", { textContent: pretty(t.baseline_output) })),
+      $("div", {}, $("div", { className: "label-sm", textContent: "Candidate output" }), $("pre", { textContent: pretty(t.candidate_output) })),
     ),
-    ...Object.entries(r.reasons).map(([name, reason]) => $("div", { className: "bad", style: "margin-top:6px" }, $("b", { textContent: name + ": " }), text(reason))),
-    r.error ? $("pre", { className: "error", style: "margin-top:6px", textContent: r.error }) : null,
-  ));
+    ...Object.entries(t.scorers).filter(([, s]) => s.reason).map(([name, s]) =>
+      $("div", { className: "bad", style: "margin-top:6px" }, $("b", { textContent: name + ": " }), text(s.reason))),
+  );
+  const oneLine = (t) => $("div", { className: "card" },
+    $("div", { className: "head", style: "margin:0" },
+      $("span", { className: ["fixed", "stabilised", "improved"].includes(t.label) ? "ok" : "bad", textContent: "•" }),
+      $("b", { textContent: t.item_id }), $("span", { className: "muted", textContent: moved(t) }), traceLinks(t)));
+  const groups = Object.keys(TRANSITION_TEXT).flatMap((label) => {
+    const cases = cmp.transitions.filter((t) => t.label === label);
+    if (!cases.length || (compact && !["broke", "degraded"].includes(label))) return [];
+    return [$("h3", { className: "section", textContent: `${TRANSITION_TEXT[label]} (${cases.length})` }),
+      ...cases.map(label === "broke" ? detailed : oneLine)];
+  });
   return $("div", {},
     verdict,
     ...cmp.warnings.map((w) => $("div", { className: "warn", textContent: `⚠ ${w}` })),
     summary,
-    n ? $("h3", { className: "section", textContent: `Regressions (${n})` }) : null,
-    ...regressions,
-    !compact && cmp.fixes.length ? $("h3", { className: "section", textContent: `Fixes (${cmp.fixes.length})` }) : null,
-    ...(compact ? [] : cmp.fixes.map((f) => $("div", { className: "card" },
-      $("div", { className: "head", style: "margin:0" },
-        $("span", { className: "ok", textContent: "✓" }), $("b", { textContent: f.item_id }),
-        $("span", { className: "muted", textContent: `${f.scorers.join(", ")}: failed → passed` }), traceLinks(f))))),
+    ...notes,
+    ...groups,
   );
 }
 

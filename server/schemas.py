@@ -9,6 +9,8 @@ from pydantic import BaseModel, Field
 TraceStatus = Literal["running", "success", "error"]
 SpanType = Literal["llm_call", "tool_call", "retrieval"]
 EvalRunStatus = Literal["running", "completed", "failed"]
+Termination = Literal["completed", "agent_error", "infra_error", "max_turns"]
+Outcome = Literal["pass", "fail", "unscored"]
 
 
 class TraceIn(BaseModel):
@@ -44,6 +46,7 @@ class EvalRunIn(BaseModel):
     dataset_hash: str
     agent: str
     version_tag: str | None = None
+    trials: int = Field(default=1, ge=1)
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -57,14 +60,37 @@ class ScoreIn(BaseModel):
     value: float | None = None
     passed: bool | None = None
     reason: str | None = None
+    outcome: Outcome | None = None
+    criterion: str = ""
+    scorer_version: str | None = None
 
 
 class EvalResultIn(BaseModel):
     result_id: UUID
     item_id: str
+    trial: int = 0
+    case_hash: str | None = None
+    termination: Termination = "completed"
     trace_id: UUID | None = None
     input: Any = None
     expected: Any = None
     output: Any = None
     error: str | None = None
+    transcript: list[dict[str, Any]] | None = None
+    turns: list[dict[str, Any]] | None = None
+    simulation: dict[str, Any] | None = None
+    environment: dict[str, Any] | None = None
     scores: list[ScoreIn] = Field(default_factory=list)
+
+
+class JudgeValidationIn(BaseModel):
+    scorer_version: str
+    labels: int
+    compared: int
+    kappa: float | None = None
+    kappa_ci: list[float] | None = None
+    confusion: dict[str, int] = Field(default_factory=dict)
+    flip_rate: float | None = None
+    repeats: int
+    unscored: int
+    validated: bool
