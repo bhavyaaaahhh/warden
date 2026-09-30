@@ -1,10 +1,11 @@
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import httpx
 
 from warden_sdk.evals.diff import compare_runs, fetch_run, print_report
-from warden_sdk.evals.runner import run_eval
+from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, agent_name, run_eval
 from warden_sdk.evals.scorers import Scorer
 from warden_sdk.tracer import WARDEN_URL
 
@@ -22,14 +23,17 @@ def _mark_baseline(client: httpx.Client, run_id: str) -> None:
 
 def run_check(
     dataset_path: Path,
-    agent_target: str,
+    agent: str | Callable,
     version_tag: str | None = None,
     scorers: dict[str, Scorer] | None = None,
     baseline_ref: str | None = None,
     trials: int = 3,
+    concurrency: int = DEFAULT_CONCURRENCY,
 ) -> int:
     """Run the dataset, then diff against the baseline. Returns the diff's exit code."""
-    run_id = run_eval(dataset_path, agent_target, version_tag=version_tag, scorers=scorers, trials=trials)
+    run_id = run_eval(
+        dataset_path, agent, version_tag=version_tag, scorers=scorers, trials=trials, concurrency=concurrency
+    )
     print()
     with _client() as client:
         candidate = fetch_run(client, run_id)
@@ -39,7 +43,7 @@ def run_check(
             if candidate["baseline_run_id"] is None:
                 # First check for this dataset + agent: this run becomes the reference.
                 _mark_baseline(client, run_id)
-                print(f"no baseline yet for {dataset_path.stem} + {agent_target}")
+                print(f"no baseline yet for {dataset_path.stem} + {agent_name(agent)}")
                 print(f"✓ saved run {run_id[:8]} as the baseline; future checks compare against it")
                 return 0
             baseline_ref = candidate["baseline_run_id"]
@@ -49,9 +53,10 @@ def run_check(
 
 def run_calibrate(
     dataset_path: Path,
-    agent_target: str,
+    agent: str | Callable,
     scorers: dict[str, Scorer] | None = None,
     trials: int = 3,
+    concurrency: int = DEFAULT_CONCURRENCY,
 ) -> int:
     """Run the same agent twice and compare the runs (an A/A test).
 
@@ -59,9 +64,9 @@ def run_calibrate(
     shows how much the suite's results move on their own.
     """
     print("A/A calibration: running the same agent twice\n")
-    first = run_eval(dataset_path, agent_target, scorers=scorers, trials=trials)
+    first = run_eval(dataset_path, agent, scorers=scorers, trials=trials, concurrency=concurrency)
     print()
-    second = run_eval(dataset_path, agent_target, scorers=scorers, trials=trials)
+    second = run_eval(dataset_path, agent, scorers=scorers, trials=trials, concurrency=concurrency)
     print()
     with _client() as client:
         runs = [fetch_run(client, first), fetch_run(client, second)]

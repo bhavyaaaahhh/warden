@@ -2,6 +2,9 @@
   python -m warden_sdk.evals check DATASET --agent module:function [--trials K] [--baseline REF] [--version TAG]
   python -m warden_sdk.evals run DATASET --agent module:function [--trials K] [--version TAG] [--scorers a,b]
   python -m warden_sdk.evals calibrate DATASET --agent module:function [--trials K]
+
+run, check and calibrate also take --concurrency N (trials run at once, default 4)
+and --scorer module:function (repeatable) to add your own scorers.
   python -m warden_sdk.evals diff BASELINE CANDIDATE
   python -m warden_sdk.evals baseline REF
   python -m warden_sdk.evals runs [--dataset NAME]
@@ -20,7 +23,7 @@ import httpx
 
 from warden_sdk.evals.commands import list_runs, run_calibrate, run_check, set_baseline
 from warden_sdk.evals.diff import run_diff
-from warden_sdk.evals.runner import run_eval
+from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, load_scorer, run_eval
 from warden_sdk.evals.scorers import SCORERS
 from warden_sdk.tracer import WARDEN_URL
 
@@ -31,7 +34,11 @@ def _add_run_args(p: argparse.ArgumentParser, trials: int, version: bool = True)
     p.add_argument("--trials", type=int, default=trials, help=f"runs of each item (default {trials})")
     if version:
         p.add_argument("--version", help="version tag (defaults to the tag the agent's traces report)")
-    p.add_argument("--scorers", help=f"comma-separated subset of: {', '.join(SCORERS)}")
+    p.add_argument("--scorers", help=f"comma-separated subset of the built-in scorers: {', '.join(SCORERS)}")
+    p.add_argument("--scorer", action="append", default=[], metavar="MODULE:FUNCTION",
+                   help="add a custom scorer (repeatable)")
+    p.add_argument("--concurrency", type=int, default=DEFAULT_CONCURRENCY,
+                   help=f"trials to run at once (default {DEFAULT_CONCURRENCY})")
 
 
 def main() -> int:
@@ -67,14 +74,23 @@ def main() -> int:
         return 2
 
 
-def _scorers(parser: argparse.ArgumentParser, arg: str | None):
-    if not arg:
-        return SCORERS
-    names = [n.strip() for n in arg.split(",")]
-    unknown = [n for n in names if n not in SCORERS]
-    if unknown:
-        parser.error(f"unknown scorers: {', '.join(unknown)}")
-    return {n: SCORERS[n] for n in names}
+def _scorers(parser: argparse.ArgumentParser, subset: str | None, custom: list[str]):
+    scorers = dict(SCORERS)
+    if subset:
+        names = [n.strip() for n in subset.split(",")]
+        unknown = [n for n in names if n not in SCORERS]
+        if unknown:
+            parser.error(f"unknown scorers: {', '.join(unknown)}")
+        scorers = {n: SCORERS[n] for n in names}
+    for target in custom:
+        try:
+            name, scorer = load_scorer(target)
+        except (ValueError, ImportError, AttributeError) as e:
+            parser.error(str(e))
+        if name in scorers:
+            parser.error(f"--scorer {target}: a scorer named {name!r} already exists")
+        scorers[name] = scorer
+    return scorers
 
 
 def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
@@ -87,15 +103,15 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
     if args.trials < 1:
         parser.error("--trials must be at least 1")
-    scorers = _scorers(parser, args.scorers)
+    if args.concurrency < 1:
+        parser.error("--concurrency must be at least 1")
+    scorers = _scorers(parser, args.scorers, args.scorer)
+    common = {"scorers": scorers, "trials": args.trials, "concurrency": args.concurrency}
     if args.command == "calibrate":
-        return run_calibrate(args.dataset, args.agent, scorers=scorers, trials=args.trials)
+        return run_calibrate(args.dataset, args.agent, **common)
     if args.command == "check":
-        return run_check(
-            args.dataset, args.agent, version_tag=args.version, scorers=scorers,
-            baseline_ref=args.baseline, trials=args.trials,
-        )
-    run_eval(args.dataset, args.agent, version_tag=args.version, scorers=scorers, trials=args.trials)
+        return run_check(args.dataset, args.agent, version_tag=args.version, baseline_ref=args.baseline, **common)
+    run_eval(args.dataset, args.agent, version_tag=args.version, **common)
     return 0
 
 

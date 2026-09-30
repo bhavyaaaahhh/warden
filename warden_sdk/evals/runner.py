@@ -1,9 +1,12 @@
 import hashlib
 import importlib
+import inspect
 import json
 import time
 import uuid
 from collections.abc import Callable
+from concurrent.futures import FIRST_EXCEPTION, ThreadPoolExecutor, wait
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -14,6 +17,28 @@ from warden_sdk.tracer import WARDEN_URL, Trace, WardenError, _eval_item, _jsona
 
 # Attempts per trial when the agent raises InfraError: the first try plus two retries.
 INFRA_ATTEMPTS = 3
+DEFAULT_CONCURRENCY = 4
+
+
+@dataclass(frozen=True)
+class EvalContext:
+    """Passed to agents that take a `context` argument.
+
+    thread_id is stable across the turns of one trial and unique per trial, so
+    an agent that keeps conversation state server-side can key it on this.
+    """
+
+    run_id: str
+    item_id: str
+    trial: int
+
+    @property
+    def thread_id(self) -> str:
+        return f"{self.run_id}:{self.item_id}:{self.trial}"
+
+
+# How the runner calls an agent: with its input and an EvalContext.
+AgentCall = Callable[[Any, EvalContext], Any]
 
 
 class InfraError(Exception):
@@ -67,11 +92,40 @@ def load_dataset(path: Path) -> tuple[list[dict[str, Any]], str]:
     return items, hashlib.sha256(raw).hexdigest()
 
 
-def load_agent(target: str) -> Callable[[Any], Any]:
+def load_target(target: str, what: str = "--agent") -> Any:
     module_name, sep, attr = target.partition(":")
     if not sep:
-        raise ValueError("--agent must look like 'package.module:function'")
+        raise ValueError(f"{what} must look like 'package.module:name', got {target!r}")
     return getattr(importlib.import_module(module_name), attr)
+
+
+def load_agent(target: str) -> Callable[[Any], Any]:
+    return load_target(target, "--agent")
+
+
+def load_scorer(target: str) -> tuple[str, Scorer]:
+    """A custom scorer by import path. It's named by its `name` attribute, else its function name."""
+    scorer = load_target(target, "--scorer")
+    if not callable(scorer):
+        raise ValueError(f"--scorer {target} is not callable")
+    return getattr(scorer, "name", None) or getattr(scorer, "__name__", target), scorer
+
+
+def agent_name(agent: str | Callable) -> str:
+    if isinstance(agent, str):
+        return agent
+    return f"{agent.__module__}:{getattr(agent, '__qualname__', type(agent).__name__)}"
+
+
+def _agent_call(agent: Callable) -> AgentCall:
+    """Pass the EvalContext only to agents that ask for it with a `context` parameter."""
+    try:
+        wants_context = "context" in inspect.signature(agent).parameters
+    except (TypeError, ValueError):
+        wants_context = False
+    if wants_context:
+        return lambda arg, ctx: agent(arg, context=ctx)
+    return lambda arg, ctx: agent(arg)
 
 
 def _as_messages(reply: Any) -> list[dict[str, Any]]:
@@ -100,11 +154,11 @@ def _tool_names(messages: list[dict[str, Any]], traces: list[Trace]) -> list[str
     return None
 
 
-def _run_single(run_id: str, item: dict[str, Any], agent: Callable, trial: int) -> dict[str, Any]:
+def _run_single(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int) -> dict[str, Any]:
     output, error = None, None
     with _eval_item(run_id, item["id"], trial) as ctx:
         try:
-            output = agent(item["input"])
+            output = agent(item["input"], EvalContext(run_id, item["id"], trial))
         except (WardenError, InfraError):
             raise
         except Exception as e:
@@ -112,7 +166,7 @@ def _run_single(run_id: str, item: dict[str, Any], agent: Callable, trial: int) 
     return {"output": output, "error": error, "traces": ctx.traces, "transcript": None, "turns": None}
 
 
-def _run_conversation(run_id: str, item: dict[str, Any], agent: Callable, trial: int) -> dict[str, Any]:
+def _run_conversation(run_id: str, item: dict[str, Any], agent: AgentCall, trial: int) -> dict[str, Any]:
     """Play the scripted user turns, calling the agent with the conversation so far each time."""
     messages: list[dict[str, Any]] = []
     turns: list[dict[str, Any]] = []
@@ -126,7 +180,7 @@ def _run_conversation(run_id: str, item: dict[str, Any], agent: Callable, trial:
         started = time.monotonic()
         with _eval_item(run_id, item["id"], trial) as ctx:
             try:
-                reply = _as_messages(agent(list(messages)))
+                reply = _as_messages(agent(list(messages), EvalContext(run_id, item["id"], trial)))
             except (WardenError, InfraError):
                 raise
             except Exception as e:
@@ -163,7 +217,7 @@ def _score(case: Case, scorers: dict[str, Scorer]) -> list[dict[str, Any]]:
 
 
 def _run_trial(
-    run_id: str, item: dict[str, Any], agent: Callable, scorers: dict[str, Scorer], trial: int
+    run_id: str, item: dict[str, Any], agent: AgentCall, scorers: dict[str, Scorer], trial: int
 ) -> tuple[dict[str, Any], str | None]:
     run = _run_conversation if "turns" in item else _run_single
     for attempt in range(1, INFRA_ATTEMPTS + 1):
@@ -238,13 +292,20 @@ def _format_item(item_id: str, results: list[dict[str, Any]]) -> str:
 
 def run_eval(
     dataset_path: Path,
-    agent_target: str,
+    agent: str | Callable,
     version_tag: str | None = None,
     scorers: dict[str, Scorer] | None = None,
     trials: int = 1,
+    concurrency: int = DEFAULT_CONCURRENCY,
 ) -> str:
+    """Run every dataset item `trials` times through the agent, score it, and store the results.
+
+    `agent` is an import path ('package.module:function') or the function itself.
+    Up to `concurrency` trials run at once, in threads.
+    """
     items, dataset_hash = load_dataset(dataset_path)
-    agent = load_agent(agent_target)
+    target = agent_name(agent)
+    call = _agent_call(load_agent(agent) if isinstance(agent, str) else agent)
     scorers = scorers or SCORERS
     run_id = str(uuid.uuid4())
 
@@ -255,31 +316,43 @@ def run_eval(
                 "run_id": run_id,
                 "dataset_name": dataset_path.stem,
                 "dataset_hash": dataset_hash,
-                "agent": agent_target,
+                "agent": target,
                 "version_tag": version_tag,
                 "trials": trials,
             },
         ).raise_for_status()
         print(f"eval run {run_id}")
-        print(f"  dataset {dataset_path.stem} ({len(items)} items × {trials} trials) → {agent_target}")
+        print(f"  dataset {dataset_path.stem} ({len(items)} items × {trials} trials) → {target}")
 
         status = "failed"
         passed: dict[str, list[bool]] = {}
+        done: dict[str, list[dict[str, Any]]] = {item["id"]: [] for item in items}
+        pool = ThreadPoolExecutor(max_workers=max(1, concurrency))
         try:
-            for item in items:
-                results = []
-                for trial in range(trials):
-                    result, trace_version = _run_trial(run_id, item, agent, scorers, trial)
+            pending = {
+                pool.submit(_run_trial, run_id, item, call, scorers, trial)
+                for item in items
+                for trial in range(trials)
+            }
+            while pending:
+                finished, pending = wait(pending, return_when=FIRST_EXCEPTION)
+                for future in finished:
+                    # Re-raises WardenError: a lost trace means the run can't be trusted.
+                    result, trace_version = future.result()
+                    # Results are posted from this thread only, so stored order doesn't depend on timing.
                     client.post(f"/eval_runs/{run_id}/results", json=result).raise_for_status()
-                    results.append(result)
                     for s in result["scores"]:
                         if s["outcome"] in ("pass", "fail"):
                             passed.setdefault(s["scorer"], []).append(s["passed"])
                     # If no --version was given, tag the run with what the agent reports.
                     version_tag = version_tag or trace_version
-                print(_format_item(item["id"], results))
+                    done[result["item_id"]].append(result)
+                    if len(done[result["item_id"]]) == trials:
+                        results = sorted(done[result["item_id"]], key=lambda r: r["trial"])
+                        print(_format_item(result["item_id"], results))
             status = "completed"
         finally:
+            pool.shutdown(wait=True, cancel_futures=True)
             try:
                 client.patch(
                     f"/eval_runs/{run_id}",
