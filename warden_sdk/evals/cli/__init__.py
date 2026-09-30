@@ -13,6 +13,8 @@ run, check and calibrate also take:
   --scorers a,b             a subset of the built-in scorers
   --scorer module:function  add your own scorer (repeatable)
   --judge                   add the LLM judge (grades items' "criteria"; needs Anthropic credentials)
+  --simulator-model M       model playing the user in "scenario" items (default claude-opus-5-5)
+  --simulator module:name   your own simulated user
 
 REF is a run id or a version tag (the latest completed run with that tag).
 
@@ -37,6 +39,7 @@ from warden_sdk.evals.cli.commands import (
 from warden_sdk.evals.loading import load_scorer, load_target
 from warden_sdk.evals.models import DEFAULT_MODEL, ClaudeModel
 from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
+from warden_sdk.evals.runner.simulator import UserSimulator
 from warden_sdk.evals.scorers import SCORERS
 from warden_sdk.evals.scorers.judge import LLMJudge, llm_judge
 from warden_sdk.evals.validation import (
@@ -61,6 +64,12 @@ def _add_run_args(p: argparse.ArgumentParser, trials: int, version: bool = True)
                    help=f"trials to run at once (default {DEFAULT_CONCURRENCY})")
     p.add_argument("--judge", action="store_true", help="add the LLM judge, which grades items' criteria")
     _add_judge_model_args(p)
+    p.add_argument("--simulator", dest="simulator_target", metavar="MODULE:NAME",
+                   help="your own simulated user: a UserSimulator, or a model to give the built-in one")
+    p.add_argument("--simulator-model", default=DEFAULT_MODEL,
+                   help=f"model playing the user in scenario items (default {DEFAULT_MODEL})")
+    p.add_argument("--simulator-effort", default="low", choices=["low", "medium", "high", "xhigh", "max"],
+                   help="effort for the simulated user (default low)")
 
 
 def _add_judge_model_args(p: argparse.ArgumentParser) -> None:
@@ -161,7 +170,8 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
     if args.concurrency < 1:
         parser.error("--concurrency must be at least 1")
     scorers = _scorers(parser, args.scorers, args.scorer, _judge(args) if args.judge else None)
-    common = {"scorers": scorers, "trials": args.trials, "concurrency": args.concurrency}
+    simulator = _simulator(parser, args)
+    common = {"scorers": scorers, "trials": args.trials, "concurrency": args.concurrency, "simulator": simulator}
     if args.command == "calibrate":
         return run_calibrate(args.dataset, args.agent, **common)
     if args.command == "check":
@@ -171,4 +181,15 @@ def _dispatch(parser: argparse.ArgumentParser, args: argparse.Namespace) -> int:
 
 
 def _judge(args: argparse.Namespace) -> LLMJudge:
-    return llm_judge(model=ClaudeModel(args.judge_model, args.judge_effort))
+    return llm_judge(model=ClaudeModel(args.judge_model, args.judge_effort, lazy=True))
+
+
+def _simulator(parser: argparse.ArgumentParser, args: argparse.Namespace) -> UserSimulator:
+    if not args.simulator_target:
+        return UserSimulator(ClaudeModel(args.simulator_model, args.simulator_effort, lazy=True))
+    target = load_target(args.simulator_target, "--simulator")
+    if isinstance(target, UserSimulator):
+        return target
+    if callable(getattr(target, "json", None)) and hasattr(target, "name"):
+        return UserSimulator(target)
+    parser.error("--simulator must name a UserSimulator or a model with `name` and `json()`")

@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 TraceStatus = Literal["running", "success", "error"]
 SpanType = Literal["llm_call", "tool_call", "retrieval"]
 EvalRunStatus = Literal["running", "completed", "failed"]
-Termination = Literal["completed", "agent_error", "infra_error"]
+Termination = Literal["completed", "agent_error", "infra_error", "max_turns"]
 Outcome = Literal["pass", "fail", "unscored"]
 
 
@@ -78,6 +78,7 @@ class EvalResultIn(BaseModel):
     error: str | None = None
     transcript: list[dict[str, Any]] | None = None
     turns: list[dict[str, Any]] | None = None
+    simulation: dict[str, Any] | None = None
     scores: list[ScoreIn] = Field(default_factory=list)
 
 

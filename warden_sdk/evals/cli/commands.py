@@ -9,6 +9,7 @@ from warden_sdk.evals.client import fetch_run
 from warden_sdk.evals.compare import compare_runs, print_report
 from warden_sdk.evals.loading import agent_name
 from warden_sdk.evals.runner import DEFAULT_CONCURRENCY, run_eval
+from warden_sdk.evals.runner.simulator import UserSimulator
 from warden_sdk.evals.scorers import Scorer
 from warden_sdk.evals.validation import judge_warnings
 
@@ -28,10 +29,12 @@ def run_check(
     baseline_ref: str | None = None,
     trials: int = 3,
     concurrency: int = DEFAULT_CONCURRENCY,
+    simulator: UserSimulator | None = None,
 ) -> int:
     """Run the dataset, then diff against the baseline. Returns the diff's exit code."""
     run_id = run_eval(
-        dataset_path, agent, version_tag=version_tag, scorers=scorers, trials=trials, concurrency=concurrency
+        dataset_path, agent, version_tag=version_tag, scorers=scorers, trials=trials, concurrency=concurrency,
+        simulator=simulator,
     )
     print()
     with _client() as client:
@@ -58,6 +61,7 @@ def run_calibrate(
     scorers: dict[str, Scorer] | None = None,
     trials: int = 3,
     concurrency: int = DEFAULT_CONCURRENCY,
+    simulator: UserSimulator | None = None,
 ) -> int:
     """Run the same agent twice and compare the runs (an A/A test).
 
@@ -65,9 +69,10 @@ def run_calibrate(
     shows how much the suite's results move on their own.
     """
     print("A/A calibration: running the same agent twice\n")
-    first = run_eval(dataset_path, agent, scorers=scorers, trials=trials, concurrency=concurrency)
+    options = {"scorers": scorers, "trials": trials, "concurrency": concurrency, "simulator": simulator}
+    first = run_eval(dataset_path, agent, **options)
     print()
-    second = run_eval(dataset_path, agent, scorers=scorers, trials=trials, concurrency=concurrency)
+    second = run_eval(dataset_path, agent, **options)
     print()
     with _client() as client:
         runs = [fetch_run(client, first), fetch_run(client, second)]

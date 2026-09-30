@@ -251,6 +251,10 @@ def _compare_metric(scorer: str, ids: list[str], ca: dict, cb: dict, seed: str) 
     return rows
 
 
+def _simulators(run: dict[str, Any]) -> list[str]:
+    return sorted({(r.get("simulation") or {}).get("simulator") for r in run["results"]} - {None})
+
+
 def _summary(run: dict[str, Any]) -> dict[str, Any]:
     keys = ("run_id", "version_tag", "status", "dataset_name", "agent", "started_at", "trials")
     return {k: run.get(k) for k in keys}
@@ -269,6 +273,11 @@ def compare_runs(a: dict[str, Any], b: dict[str, Any], intervals: bool = True) -
             warnings.append(f"run {str(run['run_id'])[:8]} is {run['status']}, results may be partial")
     if a["dataset_hash"] != b["dataset_hash"]:
         warnings.append("the runs used different dataset contents")
+    # A different simulated user changes what the agent is asked, so no check is comparable.
+    simulators = [_simulators(run) for run in (a, b)]
+    simulator_changed = all(simulators) and simulators[0] != simulators[1]
+    if simulator_changed:
+        warnings.append(f"the simulated user changed ({', '.join(simulators[0])} → {', '.join(simulators[1])})")
 
     only_a = [i for i in ca if i not in cb]
     only_b = [i for i in cb if i not in ca]
@@ -311,6 +320,9 @@ def compare_runs(a: dict[str, Any], b: dict[str, Any], intervals: bool = True) -
     for row in checks:
         row.setdefault("p_adjusted", row["p"])
         row["verdict"], row["note"] = _verdict(row)
+        if simulator_changed:
+            row["incomparable"] = True
+            row["verdict"], row["note"] = "incomparable", "the simulated user changed between runs"
 
     transitions = []
     for item_id, labels in per_case.items():

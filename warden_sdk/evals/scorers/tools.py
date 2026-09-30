@@ -31,9 +31,12 @@ def _called_tools(case: Case) -> list[str] | None:
     """Tool names the agent called, in order. None if nothing was recorded that could say."""
     if case.turns is not None:
         per_turn = [t["tool_calls"] for t in case.turns]
-        if any(calls is None for calls in per_turn):
+        # A plain-text reply with no trace can't say whether tools ran. Once some
+        # turn of the conversation has reported its calls, the agent evidently
+        # reports them, so a silent turn made none.
+        if all(calls is None for calls in per_turn):
             return None
-        return [name for calls in per_turn for name in calls]
+        return [name for calls in per_turn for name in calls or []]
     if not case.traces:
         return None  # no trace is not the same as no tool calls
     return [s.name for s in case.spans if s.span_type == "tool_call"]
